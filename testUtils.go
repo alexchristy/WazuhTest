@@ -85,6 +85,10 @@ func runTestGroup(rootTestDir string, threads int, verbosity int) ([]LogTest, er
 		logTests = append(logTests, tests...)
 	}
 
+	if len(logTests) > 0 && verbosity > 0 {
+		PrintWhite("Loaded " + strconv.Itoa(len(logTests)) + " tests from " + rootTestDir)
+	}
+
 	// There should be a one to one mapping of
 	// LogTest objects to log files. This means
 	// that the number of other files should be
