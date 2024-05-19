@@ -5,7 +5,7 @@
             "RuleID": "5710",
             "RuleLevel": "5",
             "Format": "syslog",
-            "Description": "sshd: Attempt to login using a non-existent user",
+            "RuleDescription": "sshd: Attempt to login using a non-existent user",
             "LogFilePath": "5710.txt",
             "Predecoder": {},
             "Decoder": {}
@@ -15,7 +15,7 @@
             "RuleID": "5710",
             "RuleLevel": "5",
             "Format": "syslog",
-            "Description": "sshd: Attempt to login using a non-existent user",
+            "RuleDescription": "sshd: Attempt to login using a non-existent user",
             "LogFilePath": "5710-local-net.txt",
             "Predecoder": {},
             "Decoder": {}
