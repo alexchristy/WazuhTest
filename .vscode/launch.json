@@ -1,0 +1,21 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Snaplabs Debug",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}",
+            "args": [
+                "-t", "3",
+                "-u", "wunit",
+                "-p", "DNSTooC00L@Skool",
+                "-v", "10.0.0.5"
+            ],
+            "env": {},
+            "buildFlags": "",
+            "showLog": true
+        }
+    ]
+}

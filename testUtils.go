@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"sync"
 )
 
 // Here is an example structure of:
@@ -31,7 +32,7 @@ import (
 // Groups can be nested to any depth. The test runner will recursively search
 // for test definition files and log files in the root directory and all
 // subdirectories.
-func runTestGroup(rootTestDir string, threads int, verbosity int) ([]LogTest, error) {
+func runTestGroup(rootTestDir string, threads int, verbosity int, timeout int) ([]LogTest, error) {
 
 	// Check if rootTestDir exists
 	exists, err := fileExists(rootTestDir)
@@ -68,7 +69,7 @@ func runTestGroup(rootTestDir string, threads int, verbosity int) ([]LogTest, er
 	// test tree from bottom up
 	for _, subdirectory := range subdirectories {
 		path := filepath.Join(rootTestDir, subdirectory.Name())
-		_, err := runTestGroup(path, threads, verbosity)
+		_, err := runTestGroup(path, threads, verbosity, timeout)
 		if err != nil {
 			return nil, err
 		}
@@ -86,7 +87,7 @@ func runTestGroup(rootTestDir string, threads int, verbosity int) ([]LogTest, er
 	}
 
 	if len(logTests) > 0 && verbosity > 0 {
-		PrintWhite("Loaded " + strconv.Itoa(len(logTests)) + " tests from " + rootTestDir)
+		PrintBoldWhite("Loaded " + strconv.Itoa(len(logTests)) + " tests from " + rootTestDir)
 	}
 
 	// There should be a one to one mapping of
@@ -102,11 +103,37 @@ func runTestGroup(rootTestDir string, threads int, verbosity int) ([]LogTest, er
 		PrintYellow("WARNING: " + rootTestDir + " has " + strconv.Itoa(diff) + " tests with no corresponding log files and will be skipped...")
 	}
 
-	// Run tests concurrently with a max of user
-	// defined number of threads
-	// go runTests(logTests, THREADS)
+	// Create a buffered channel to limit the number of concurrent goroutines
+	semaphore := make(chan struct{}, threads)
+	var wg sync.WaitGroup
+
+	// Run tests concurrently with a max of user-defined number of threads
+	for _, logTest := range logTests {
+		wg.Add(1)
+		semaphore <- struct{}{} // acquire a slot
+		go func(logTest LogTest) {
+			defer wg.Done()
+			defer func() { <-semaphore }() // release the slot
+			runTest(logTest, rootTestDir, verbosity)
+		}(logTest)
+	}
+
+	// Wait for all goroutines to finish
+	wg.Wait()
+
+	fmt.Println()
 
 	return logTests, nil
+}
+
+// This function will run a single test and return back the pass/fail
+// and any errors that occurred during the test.
+func runTest(logTest LogTest, workingDir string, verbosity int) (bool, []string) {
+	if verbosity > 0 {
+		fmt.Println("Running test: (RuleID: " + logTest.getRuleID() + ") " + logTest.getTestDescription())
+	}
+
+	return true, nil
 }
 
 func loadTestDef(path string, verbosity int) ([]LogTest, error) {

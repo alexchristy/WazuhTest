@@ -293,7 +293,7 @@ func isValidDecoder(decoder map[string]string) (bool, []string, []string) {
 	// break Wazuh Log Test
 	for key, value := range decoder {
 		if value == "" {
-			warnings = append(warnings, "Decoder value for key "+key+" is empty")
+			warnings = append(warnings, "Decoder value for key "+ key +" is empty")
 			return false, errors, warnings
 		}
 	}
