@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"os"
 	"strconv"
@@ -12,6 +13,7 @@ type TestGroup struct {
 }
 
 type LogTest struct {
+	Version         string            `json:"Version"`
 	RuleID          string            `json:"RuleID"`
 	RuleLevel       string            `json:"RuleLevel"`
 	RuleDescription string            `json:"RuleDescription"`
@@ -22,15 +24,24 @@ type LogTest struct {
 	TestDescription string            `json:"TestDescription"`
 }
 
-func NewLogTest(RuleID string, RuleLevel string, RuleDescription string, LogFilePath string, Format string, Decoder map[string]string, Predecoder map[string]string, TestDescription string) (*LogTest, bool, []string, []string) {
+func NewLogTest(Version string, RuleID string, RuleLevel string, RuleDescription string, LogFilePath string, Format string, Decoder map[string]string, Predecoder map[string]string, TestDescription string) (*LogTest, bool, []string, []string) {
 	lt := new(LogTest)
 
 	validTest := true // Want to print out all invalid parts of the test
 	errors := []string{}
 	warnings := []string{}
 
+	// Version
+	valid, err, warn := isValidVersion(Version)
+	errors = append(errors, err...)
+	warnings = append(warnings, warn...)
+	if !valid {
+		validTest = false
+	}
+	lt.Version = Version
+
 	// Rule ID
-	valid, err, warn := isValidRuleID(RuleID)
+	valid, err, warn = isValidRuleID(RuleID)
 	errors = append(errors, err...)
 	warnings = append(warnings, warn...)
 	if !valid {
@@ -104,12 +115,38 @@ func NewLogTest(RuleID string, RuleLevel string, RuleDescription string, LogFile
 	return lt, validTest, errors, warnings
 }
 
+func isValidVersion(Version string) (bool, []string, []string) {
+	errors := []string{}
+	warnings := []string{}
+
+	validVersions := map[string]struct{}{
+		"0.1": {},
+	}
+
+	// Empty Version is not an error but should generally be avoided
+	// as it will be assumed to be the latest version
+	if Version == "" {
+		warnings = append(warnings, "Version is empty using latest test version")
+		return true, errors, warnings
+	}
+
+	// Check if the version is valid
+	_, exists := validVersions[Version]
+
+	if !exists {
+		errors = append(errors, fmt.Sprintf("Version: %s is not a valid test version", Version))
+		return false, errors, warnings
+	}
+
+	return true, errors, warnings
+}
+
 // This comes from the Wazuh documentation
 // Must be between 0 and 999999
 // See: https://documentation.wazuh.com/current/user-manual/ruleset/ruleset-xml-syntax/rules.html#rules-rule
 func isValidRuleID(RuleID string) (bool, []string, []string) {
-	errors := []string{}
-	warnings := []string{}
+	var errors []string
+	var warnings []string
 
 	// Convert RuleID to int
 	RuleIDInt, err := strconv.Atoi(RuleID)
@@ -270,13 +307,47 @@ func fileHasOneLine(r io.Reader) (int, error) {
 	}
 }
 
-func isValidFormat(Format string) (bool, []string, []string) {
+func isValidFormat(format string) (bool, []string, []string) {
 	errors := []string{}
 	warnings := []string{}
 
+	// See below `log_format` in the API reference:
+	// https://documentation.wazuh.com/current/user-manual/api/reference.html#operation/api.controllers.logtest_controller.run_logtest_tool
+	validLogTypes := []string{
+		"syslog",
+		"json",
+		"snort-full",
+		"squid",
+		"eventlog",
+		"eventchannel",
+		"audit",
+		"mysql_log",
+		"postgresql_log",
+		"nmapg",
+		"iis",
+		"command",
+		"full_command",
+		"djb-multilog",
+		"multi-line",
+	}
+
 	// Empty Format is not an error but should generally be avoided
-	if Format == "" {
+	if format == "" {
 		warnings = append(warnings, "Format is empty")
+		return false, errors, warnings
+	}
+
+	// Check if the format is valid
+	valid := false
+	for _, logType := range validLogTypes {
+		if format == logType {
+			valid = true
+			break
+		}
+	}
+
+	if !valid {
+		errors = append(errors, fmt.Sprintf("Log format: %s is not valid", format))
 		return false, errors, warnings
 	}
 
@@ -293,7 +364,7 @@ func isValidDecoder(decoder map[string]string) (bool, []string, []string) {
 	// break Wazuh Log Test
 	for key, value := range decoder {
 		if value == "" {
-			warnings = append(warnings, "Decoder value for key "+ key +" is empty")
+			warnings = append(warnings, "Decoder value for key "+key+" is empty")
 			return false, errors, warnings
 		}
 	}
@@ -340,4 +411,28 @@ func (lt *LogTest) getRuleID() string {
 
 func (lt *LogTest) getTestDescription() string {
 	return lt.TestDescription
+}
+
+func (lt *LogTest) getLogFilePath() string {
+	return lt.LogFilePath
+}
+
+func (lt *LogTest) getFormat() string {
+	return lt.Format
+}
+
+func (lt *LogTest) getRuleDescription() string {
+	return lt.RuleDescription
+}
+
+func (lt *LogTest) getRuleLevel() string {
+	return lt.RuleLevel
+}
+
+func (lt *LogTest) getDecoder() map[string]string {
+	return lt.Decoder
+}
+
+func (lt *LogTest) getPredecoder() map[string]string {
+	return lt.Predecoder
 }

@@ -3,7 +3,10 @@ package main
 import (
 	"crypto/tls"
 	"encoding/base64"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
@@ -17,11 +20,12 @@ type WazuhServer struct {
 	Timeout   int
 
 	// Internal variables
-	token         string
-	protocol      string
-	port          int
-	loginEndpoint string
-	httpClient    *http.Client
+	token           string
+	protocol        string
+	port            int
+	loginEndpoint   string
+	logTestEndpoint string
+	httpClient      *http.Client
 }
 
 func NewWazuhServer(ApiUser string, ApiPass string, Hostname string, Timeout int) (*WazuhServer, error) {
@@ -51,6 +55,7 @@ func NewWazuhServer(ApiUser string, ApiPass string, Hostname string, Timeout int
 	ws.protocol = "https"
 	ws.port = 55000
 	ws.loginEndpoint = "security/user/authenticate"
+	ws.logTestEndpoint = "logtest"
 	ws.httpClient = &http.Client{
 		Timeout: time.Duration(ws.Timeout) * time.Second,
 		// Do not verify certs
@@ -60,7 +65,7 @@ func NewWazuhServer(ApiUser string, ApiPass string, Hostname string, Timeout int
 	}
 
 	// Attempt to authenticate to the manager
-	err := ws.getToken()
+	err := ws.requestAuthToken()
 	if err != nil {
 		return nil, err
 	}
@@ -68,22 +73,21 @@ func NewWazuhServer(ApiUser string, ApiPass string, Hostname string, Timeout int
 	return ws, nil
 }
 
-func (ws *WazuhServer) getToken() error {
-	loginUrl := fmt.Sprintf("%s://%s:%d/%s", ws.protocol, ws.Hostname, ws.port, ws.loginEndpoint)
+func (ws *WazuhServer) requestAuthToken() error {
 	basicAuth := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", ws.ApiUser, ws.ApiPass)))
-	loginHeaders := map[string]string{
+	loginHeaders := map[string]interface{}{
 		"Content-Type":  "application/json",
 		"Authorization": fmt.Sprintf("Basic %s", basicAuth),
 	}
 
 	PrintWhite("Authenticating to manager: " + ws.Hostname)
 
-	req, err := http.NewRequest("POST", loginUrl, nil)
+	req, err := http.NewRequest("POST", ws.getLoginUrl(), nil)
 	if err != nil {
 		return fmt.Errorf("error creating request: %s", err)
 	}
 
-	result, err := makeWazuhRequest(ws.httpClient, req, loginHeaders, ws.Timeout)
+	result, err := ws.sendRequest(req, loginHeaders)
 	if err != nil {
 		return err
 	}
@@ -114,9 +118,65 @@ func (ws *WazuhServer) getToken() error {
 
 	PrintGreen("Sucessfully authenticated to manager.")
 
-	fmt.Println()
-
 	return nil
+}
+
+func (ws *WazuhServer) getLoginUrl() string {
+	return fmt.Sprintf("%s://%s:%d/%s", ws.protocol, ws.Hostname, ws.port, ws.loginEndpoint)
+}
+
+func (ws *WazuhServer) getLogTestUrl() string {
+	return fmt.Sprintf("%s://%s:%d/%s", ws.protocol, ws.Hostname, ws.port, ws.logTestEndpoint)
+}
+
+func (ws *WazuhServer) getBaseUrl() string {
+	return fmt.Sprintf("%s://%s:%d/", ws.protocol, ws.Hostname, ws.port)
+}
+
+func (ws *WazuhServer) getToken() string {
+	return ws.token
+}
+
+func (ws *WazuhServer) sendRequest(req *http.Request, headers map[string]interface{}) (map[string]interface{}, error) {
+	// Add headers
+	for key, value := range headers {
+		req.Header.Set(key, fmt.Sprintf("%v", value))
+	}
+
+	// Check if the request has data
+	if req.Body != nil {
+		// Check if the Content-Type header is set
+		if req.Header.Get("Content-Type") == "" {
+			return nil, fmt.Errorf("Content-Type header is required when data is included in the request")
+		}
+	}
+
+	resp, err := ws.httpClient.Do(req)
+	if err != nil {
+		if errors.Is(err, http.ErrHandlerTimeout) {
+			return nil, fmt.Errorf("connection to manager timed out after %d seconds", ws.Timeout)
+		}
+		return nil, fmt.Errorf("error connecting to manager: %s", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		return nil, fmt.Errorf("authentication failed: %s", resp.Status)
+	} else if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected response from manager: %s", resp.Status)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("error reading response body: %s", err)
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("error parsing token response body: %s", err)
+	}
+
+	return result, nil
 }
 
 func (ws *WazuhServer) checkConnection(verbosity int) error {
@@ -126,17 +186,16 @@ func (ws *WazuhServer) checkConnection(verbosity int) error {
 		return fmt.Errorf("no token available. Please authenticate to the manager first")
 	}
 
-	checkUrl := fmt.Sprintf("%s://%s:%d/", ws.protocol, ws.Hostname, ws.port)
-	headers := map[string]string{
+	headers := map[string]interface{}{
 		"Authorization": fmt.Sprintf("Bearer %s", ws.token),
 	}
 
-	req, err := http.NewRequest("GET", checkUrl, nil)
+	req, err := http.NewRequest("GET", ws.getBaseUrl(), nil)
 	if err != nil {
 		return fmt.Errorf("error creating request: %s", err)
 	}
 
-	result, err := makeWazuhRequest(ws.httpClient, req, headers, ws.Timeout)
+	result, err := ws.sendRequest(req, headers) // data is empty
 	if err != nil {
 		return err
 	}
@@ -174,7 +233,7 @@ func (ws *WazuhServer) checkConnection(verbosity int) error {
 	}
 	PrintGreen("Verified connection to manager.")
 
-	fmt.Println()
+	fmt.Printf("\n\n")
 
 	return nil
 }

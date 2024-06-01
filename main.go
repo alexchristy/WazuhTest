@@ -1,8 +1,5 @@
 package main
 
-// Global WazuhServer object
-var wazuhServer *WazuhServer
-
 // main
 func main() {
 
@@ -17,5 +14,5 @@ func main() {
 
 	wazuhServer.checkConnection(args.Verbosity)
 
-	runTestGroup("./tests", args.Threads, args.Verbosity, args.Timeout)
+	runTestGroup(*wazuhServer, "./tests", args.Threads, args.Verbosity, args.Timeout)
 }

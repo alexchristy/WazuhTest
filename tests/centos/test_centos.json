@@ -1,16 +1,18 @@
 {
     "Tests": [
         {
+            "Version": "0.1",
             "TestDescription": "Server start rule test.",
             "RuleID": "502",
             "RuleLevel": "3",
-            "Format": "ossec",
+            "Format": "syslog",
             "RuleDescription": "Wazuh server started.",
             "Predecoder":{},
             "Decoder": {},
             "LogFilePath": "502.txt" 
         },
         {
+            "Version": "0.1",
             "TestDescription": "Sniffing mode rule test.",
             "RuleID": "5104",
             "RuleLevel": "8",
@@ -21,7 +23,8 @@
                 "timestamp": "Mar  5 08:44:55"
             },
             "Decoder": {
-                "name": "kernel"
+                "name": "kernel",
+                "bleh": "bleh"
             },
             "LogFilePath": "5104.txt"
         }

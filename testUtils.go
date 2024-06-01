@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -34,7 +37,7 @@ import (
 // Groups can be nested to any depth. The test runner will recursively search
 // for test definition files and log files in the root directory and all
 // subdirectories.
-func runTestGroup(rootTestDir string, numThreads int, verbosity int, timeout int) ([]LogTest, error) {
+func runTestGroup(ws WazuhServer, rootTestDir string, numThreads int, verbosity int, timeout int) ([]LogTest, error) {
 
 	// Check if rootTestDir exists
 	exists, err := fileExists(rootTestDir)
@@ -71,25 +74,32 @@ func runTestGroup(rootTestDir string, numThreads int, verbosity int, timeout int
 	// test tree from bottom up
 	for _, subdirectory := range subdirectories {
 		path := filepath.Join(rootTestDir, subdirectory.Name())
-		_, err := runTestGroup(path, numThreads, verbosity, timeout)
+		_, err := runTestGroup(ws, path, numThreads, verbosity, timeout)
 		if err != nil {
 			return nil, err
 		}
 	}
 
 	// Load all test definitions
-	var logTests []LogTest
+	var logTests []LogTest = []LogTest{}
+	var invalidTests int = 0
 	for _, testDef := range testDefs {
 		path := filepath.Join(rootTestDir, testDef.Name())
-		tests, err := loadTestDef(path, verbosity)
+		tests, currInvalidTests, err := loadTestDef(path, verbosity)
+
+		// This panic will only occur
+		// if the test definition file (.json)
+		// has an error.
 		if err != nil {
 			panic(err)
 		}
 		logTests = append(logTests, tests...)
+		invalidTests += currInvalidTests
 	}
 
 	if len(logTests) > 0 && verbosity > 0 {
-		PrintBoldWhite("Loaded " + strconv.Itoa(len(logTests)) + " tests from " + rootTestDir)
+		totalTests := len(logTests) + invalidTests
+		PrintBoldWhite("Sucessfully loaded " + strconv.Itoa(len(logTests)) + "/" + strconv.Itoa(totalTests) + " tests from " + rootTestDir)
 	}
 
 	// There should be a one to one mapping of
@@ -113,8 +123,9 @@ func runTestGroup(rootTestDir string, numThreads int, verbosity int, timeout int
 	var wg sync.WaitGroup
 
 	// Save failed tests for reporting
-	var failedTests []LogTest
-	var failTestErrors [][]string
+	var failedTest int = 0
+	var errors [][]string
+	var warnings [][]string
 
 	// Run tests concurrently with a max of user-defined number of threads
 	for _, logTest := range logTests {
@@ -123,12 +134,14 @@ func runTestGroup(rootTestDir string, numThreads int, verbosity int, timeout int
 		go func(logTest LogTest) {
 			defer wg.Done()
 			defer func() { <-semaphore }() // release the slot
-			passed, testErrors := runTest(logTest, rootTestDir)
+			passed, testErrors, testWarnings := runTest(ws, logTest)
 
 			if !passed {
-				failedTests = append(failedTests, logTest)
-				failTestErrors = append(failTestErrors, testErrors)
+				failedTest++
 			}
+
+			errors = append(errors, testErrors)
+			warnings = append(warnings, testWarnings)
 
 			bar.Add(1)
 		}(logTest)
@@ -137,39 +150,341 @@ func runTestGroup(rootTestDir string, numThreads int, verbosity int, timeout int
 	// Wait for all goroutines to finish
 	wg.Wait()
 
-	fmt.Printf("\n\n")
+	fmt.Printf("\n")
+
+	// len(logTests) == len(errors) == len(warnings)
+	for i, test := range logTests {
+		failedTest := false
+
+		if len(errors[i]) > 0 {
+			failedTest = true
+			PrintRed("[FAILED] Test: (RuleID: " + test.getRuleID() + ") " + test.getTestDescription())
+			for _, e := range errors[i] {
+				PrintRed("+ " + e)
+			}
+		}
+		if verbosity > 1 && len(warnings[i]) > 0 {
+			// Only print warnings header if there were no errors
+			if !failedTest {
+				PrintYellow("[WARNING] Test: (RuleID: " + test.getRuleID() + ") " + test.getTestDescription())
+			}
+			for _, w := range warnings[i] {
+				PrintYellow("+ " + w)
+			}
+		}
+	}
 
 	return logTests, nil
 }
 
 // This function will run a single test and return back the pass/fail
 // and any errors that occurred during the test.
-func runTest(logTest LogTest, workingDir string) (bool, []string) {
+func runTest(ws WazuhServer, logTest LogTest) (bool, []string, []string) {
 
-	// TODO: Implement the test runner
+	var errors []string
+	var warnings []string
 
-	return true, nil
+	// Load the log file
+	logData, err := os.ReadFile(logTest.getLogFilePath())
+	if err != nil {
+		errors = append(errors, "Error opening log file: "+err.Error())
+		return false, errors, warnings
+	}
+
+	// Create headers for request
+	logTestHeaders := map[string]interface{}{
+		"Content-Type":  "application/json",
+		"Authorization": "Bearer " + ws.getToken(),
+	}
+
+	// Create data to send with request
+	logTestData := map[string]interface{}{
+		"event":      string(logData),
+		"log_format": logTest.getFormat(),
+		"location":   "WazuhTestRunner",
+	}
+	jsonData, err := json.Marshal(logTestData)
+	if err != nil {
+		errors = append(errors, "Error marshalling log data: "+err.Error())
+		return false, errors, warnings
+	}
+
+	// Build request to send logTestData
+	req, err := http.NewRequest("PUT", ws.getLogTestUrl(), bytes.NewBuffer(jsonData))
+	if err != nil {
+		errors = append(errors, "Error creating request: "+err.Error())
+		return false, errors, warnings
+	}
+
+	// Send request
+	result, err := ws.sendRequest(req, logTestHeaders)
+	if err != nil {
+		errors = append(errors, "Error sending request: "+err.Error())
+		return false, errors, warnings
+	}
+
+	// Convert result map to JSON bytes
+	jsonBytes, err := json.Marshal(result)
+	if err != nil {
+		log.Fatalf("Error marshalling Wazuh server result map to JSON: %v", err)
+	}
+
+	// Unmarshal JSON bytes into the Response struct
+	var response Response
+	err = json.Unmarshal(jsonBytes, &response)
+	if err != nil {
+		log.Fatalf("Error unmarshalling Wazuh server response JSON to Response struct: %v", err)
+	}
+
+	// Validate the response
+	passed, resErrors, resWarnings := validateLogTestResponse(logTest, response)
+	if !passed {
+		errors = append(errors, resErrors...)
+		warnings = append(warnings, resWarnings...)
+	}
+
+	return passed, errors, warnings
 }
 
-func loadTestDef(path string, verbosity int) ([]LogTest, error) {
+// This function will compare the expected response
+// with the actual response from the Wazuh server.
+func validateLogTestResponse(logTest LogTest, response Response) (bool, []string, []string) {
+	// Note: All the errors and warnings
+	// that we recieve from the validation
+	// functions are related to the value
+	// that is returned from the Wazuh server.
+	//
+	// At this point the LogTests have already
+	// been validated for correctness.
+	//
+	// We will return early for all errors
+	// to prevent giving back more errors
+	// than necessary.
+	var errors []string
+	var warnings []string
+	var passed bool = true
+
+	// ======( RuleID Validation )====== //
+	passed, ruleIDErrors, ruleIDWarnings := validateRuleID(logTest.getRuleID(), response.Data.Output.Rule.ID)
+	if !passed {
+		errors = append(errors, ruleIDErrors...)
+		warnings = append(warnings, ruleIDWarnings...)
+		return passed, errors, warnings
+	}
+
+	// ======( RuleLevel Validation )====== //
+	expectedRuleLevel, err := strconv.Atoi(logTest.getRuleLevel())
+	if err != nil {
+		errors = append(errors, "Error converting returned RuleLevel to int: "+err.Error())
+		return false, errors, warnings
+	}
+
+	passed, ruleLevelErrors, ruleLevelWarnings := validateRuleLevel(expectedRuleLevel, response.Data.Output.Rule.Level)
+	if !passed {
+		errors = append(errors, ruleLevelErrors...)
+		warnings = append(warnings, ruleLevelWarnings...)
+		return passed, errors, warnings
+	}
+
+	// ======( RuleDescription Validation )====== //
+	passed, ruleDescriptionErrors, ruleDescriptionWarnings := validateRuleDescription(logTest.getRuleDescription(), response.Data.Output.Rule.Description)
+	if !passed {
+		errors = append(errors, ruleDescriptionErrors...)
+		warnings = append(warnings, ruleDescriptionWarnings...)
+		return passed, errors, warnings
+	}
+
+	// ======( Predecoder Validation )====== //
+	passed, predecoderErrors, predecoderWarnings := validateDecoder(logTest.getPredecoder(), response.Data.Output.Predecoder, "Predecoder")
+	if !passed {
+		errors = append(errors, predecoderErrors...)
+		warnings = append(warnings, predecoderWarnings...)
+		return passed, errors, warnings
+	}
+
+	// ======( Decoder Validation )====== //
+	passed, decoderErrors, decoderWarnings := validateDecoder(logTest.getDecoder(), response.Data.Output.Decoder, "Decoder")
+	if !passed {
+		errors = append(errors, decoderErrors...)
+		warnings = append(warnings, decoderWarnings...)
+		return passed, errors, warnings
+	}
+
+	return passed, errors, warnings
+}
+
+// This function will check for messages in
+func extractLogTestMessages(result map[string]interface{}) (bool, []string, []string) {
+	// Based on what I can find from the documentation
+	// and personal experience, there appear to be
+	// only INFO and WARNING messages.
+	var warnings []string
+	var info []string
+	var haveMessages bool = false
+
+	// Check if the messages key exists
+	messages, ok := result["data"].(map[string]interface{})["messages"]
+	if !ok {
+		return false, nil, nil
+	}
+
+	// Check if the messages key is empty
+	if len(messages.([]interface{})) == 0 {
+		return false, nil, nil
+	}
+
+	// Extract the messages
+	// regexp.MustCompile()
+	// for _, message := range messages.([]interface{}) {
+
+	return haveMessages, warnings, info
+}
+
+// This function will validate the RuleID returned by the Wazuh server
+func validateRuleID(expected string, got string) (bool, []string, []string) {
+	var errors []string
+	var warnings []string
+
+	// Note: we are assuming that
+	// expected is correct and would
+	// pass a isValidRuleID check.
+	//
+	// We check first if the recieved
+	// RuleID is invalid to provide
+	// better feedback to the user.
+	//
+	// We also return early if the RuleID
+	// is invalid to prevent giving back
+	// more errors than necessary.
+	if got == "" {
+		errors = append(errors, "RuleID is empty")
+		return false, errors, warnings
+
+	}
+
+	// Check if the returned RuleID is valid
+	valid, valErrors, valWarnigns := isValidRuleID(got)
+	errors = append(errors, valErrors...)
+	warnings = append(warnings, valWarnigns...)
+	if !valid {
+		return false, errors, warnings
+	}
+
+	// Check if the expected RuleID matches the
+	// returned RuleID
+	if expected != got {
+		errors = append(errors, "Expected RuleID: "+expected+" Got RuleID: "+got)
+		return false, errors, warnings
+	}
+
+	return true, errors, warnings
+}
+
+// This function will validate the RuleLevel returned by the Wazuh server
+func validateRuleLevel(expected int, got int) (bool, []string, []string) {
+	var errors []string
+	var warnings []string
+
+	// Check if the RuleLevel is valid
+	valid, valErrors, valWarnings := isValidRuleLevel(strconv.Itoa(got))
+	errors = append(errors, valErrors...)
+	warnings = append(warnings, valWarnings...)
+	if !valid {
+		return false, errors, warnings
+	}
+
+	// Check if the expected RuleLevel matches the
+	// returned RuleLevel
+	if expected != got {
+		errors = append(errors, "Expected RuleLevel: "+strconv.Itoa(expected)+" Got RuleLevel: "+strconv.Itoa(got))
+		return false, errors, warnings
+	}
+
+	return true, errors, warnings
+}
+
+// This function will validate the RuleDescription returned by the Wazuh server
+func validateRuleDescription(expected string, got string) (bool, []string, []string) {
+	var errors []string
+	var warnings []string
+
+	// =====( RuleDescription Validation )=====
+	if got == "" {
+		errors = append(errors, "RuleDescription is empty")
+		return false, errors, warnings
+	}
+
+	// Check if the RuleDescription is valid
+	valid, valErrors, valWarnings := isValidRuleDescription(got)
+	errors = append(errors, valErrors...)
+	warnings = append(warnings, valWarnings...)
+	if !valid {
+		return false, errors, warnings
+	}
+
+	// Check if the expected RuleDescription matches the
+	// returned RuleDescription
+	if expected != got {
+		errors = append(errors, "Expected RuleDescription: "+expected+" Got RuleDescription: "+got)
+		return false, errors, warnings
+	}
+
+	return true, errors, warnings
+}
+
+func validateDecoder(expected map[string]string, got map[string]string, decoderType string) (bool, []string, []string) {
+	var errors []string
+	var warnings []string
+	var passed bool = true
+
+	// Check if the expected Decoder is empty
+	// this means that the test does not care
+	// about the Decoder output.
+	if len(expected) == 0 {
+		return true, errors, warnings
+	}
+
+	for key, val := range expected {
+		// Check if the key exists in the returned Decoder
+		_, ok := got[key]
+		if !ok {
+			passed = false
+			errors = append(errors, "Expected key: "+key+" not found in returned "+decoderType)
+			continue
+		}
+
+		// Check if the value of the key matches the expected value
+		if val != got[key] {
+			passed = false
+			errors = append(errors, "Expected value: "+val+" for key: "+key+" in returned "+decoderType+" Got value: "+got[key])
+			continue
+		}
+	}
+
+	return passed, errors, warnings
+}
+
+func loadTestDef(path string, verbosity int) ([]LogTest, int, error) {
+	var invalidTestCount int = 0
+
 	// Check file extension is .json
 	if filepath.Ext(path) != ".json" {
-		return nil, errors.New("file is not a JSON file")
+		return nil, -1, errors.New("file is not a JSON file")
 	}
 
 	// Check if path exists
 	exists, err := fileExists(path)
 	if err != nil {
-		return nil, err
+		return nil, -1, err
 	}
 	if !exists {
-		return nil, errors.New("file does not exist")
+		return nil, 1, errors.New("file does not exist")
 	}
 
 	// Open the file
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, -1, err
 	}
 	defer file.Close()
 
@@ -178,14 +493,13 @@ func loadTestDef(path string, verbosity int) ([]LogTest, error) {
 	decoder := json.NewDecoder(file)
 	err = decoder.Decode(&testGroup)
 	if err != nil {
-		return nil, err
+		return nil, -1, err
 	}
 
-	var invalidTestCount int
 	var logTests []LogTest
 	for i, raw := range testGroup.Tests {
 		logPath := filepath.Join(filepath.Dir(path), raw.LogFilePath)
-		logTest, valid, loadErrors, loadWarnings := NewLogTest(raw.RuleID, raw.RuleLevel, raw.RuleDescription, logPath, raw.Format, raw.Decoder, raw.Predecoder, raw.TestDescription)
+		logTest, valid, loadErrors, loadWarnings := NewLogTest(raw.Version, raw.RuleID, raw.RuleLevel, raw.RuleDescription, logPath, raw.Format, raw.Decoder, raw.Predecoder, raw.TestDescription)
 		if !valid {
 			// Print warnings or handle invalid tests as needed
 			if logTest.getRuleID() == "" {
@@ -220,10 +534,13 @@ func loadTestDef(path string, verbosity int) ([]LogTest, error) {
 
 		}
 
-		logTests = append(logTests, *logTest)
+		// Do not append invalid tests
+		if valid {
+			logTests = append(logTests, *logTest)
+		}
 	}
 
-	return logTests, nil
+	return logTests, invalidTestCount, nil
 }
 
 // Load all test definitions from the current directory
