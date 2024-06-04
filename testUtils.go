@@ -37,46 +37,57 @@ import (
 // Groups can be nested to any depth. The test runner will recursively search
 // for test definition files and log files in the root directory and all
 // subdirectories.
-func runTestGroup(ws WazuhServer, rootTestDir string, numThreads int, verbosity int, timeout int) ([]LogTest, error) {
+func runTestGroup(ws WazuhServer, rootTestDir string, numThreads int, verbosity int, timeout int) (int, int, int, error) {
 
 	// Check if rootTestDir exists
 	exists, err := fileExists(rootTestDir)
 	if err != nil {
-		return nil, err
+		return 0, 0, 0, err
 	}
 	if !exists {
-		return nil, errors.New("root test directory does not exist")
+		return 0, 0, 0, errors.New("root test directory does not exist")
 	}
 
 	// Check if rootTestDir is a directory
 	isDir, err := isDir(rootTestDir)
 	if err != nil {
-		return nil, err
+		return 0, 0, 0, err
 	}
 	if !isDir {
-		return nil, errors.New("root test directory is not a directory")
+		return 0, 0, 0, errors.New("root test directory is not a directory")
 	}
 
 	// List our current directory
 	files, err := os.ReadDir(rootTestDir)
 	if err != nil {
-		return nil, err
+		return 0, 0, 0, err
 	}
 
 	// Sort the files into test definitions, subdirectories, and other files
 	testDefs, subdirectories, otherFiles, err := sortDirContent(files)
 
 	if err != nil {
-		return nil, err
+		return 0, 0, 0, err
 	}
+
+	// Save failed tests for reporting
+	var numTests int = 0
+	var numFailedTests int = 0
+	var numWarnedTests int = 0
+	var errors [][]string
 
 	// Recurse into subdirectories to evaluate tests
 	// test tree from bottom up
 	for _, subdirectory := range subdirectories {
 		path := filepath.Join(rootTestDir, subdirectory.Name())
-		_, err := runTestGroup(ws, path, numThreads, verbosity, timeout)
+		currNumTests, currFailedTests, currWarnTests, err := runTestGroup(ws, path, numThreads, verbosity, timeout)
+
+		numTests += currNumTests
+		numFailedTests += currFailedTests
+		numWarnedTests += currWarnTests
+
 		if err != nil {
-			return nil, err
+			return currNumTests, numFailedTests, numWarnedTests, err
 		}
 	}
 
@@ -122,9 +133,6 @@ func runTestGroup(ws WazuhServer, rootTestDir string, numThreads int, verbosity 
 	semaphore := make(chan struct{}, numThreads)
 	var wg sync.WaitGroup
 
-	// Save failed tests for reporting
-	var failedTest int = 0
-	var errors [][]string
 	var warnings [][]string
 
 	// Run tests concurrently with a max of user-defined number of threads
@@ -135,9 +143,14 @@ func runTestGroup(ws WazuhServer, rootTestDir string, numThreads int, verbosity 
 			defer wg.Done()
 			defer func() { <-semaphore }() // release the slot
 			passed, testErrors, testWarnings := runTest(ws, logTest)
+			numTests++
 
 			if !passed {
-				failedTest++
+				numFailedTests++
+			}
+
+			if len(testWarnings) > 0 {
+				numWarnedTests++
 			}
 
 			errors = append(errors, testErrors)
@@ -174,7 +187,11 @@ func runTestGroup(ws WazuhServer, rootTestDir string, numThreads int, verbosity 
 		}
 	}
 
-	return logTests, nil
+	if len(logTests) > 0 {
+		fmt.Printf("\n\n")
+	}
+
+	return numTests, numFailedTests, numWarnedTests, err
 }
 
 // This function will run a single test and return back the pass/fail
