@@ -19,3 +19,9 @@
 
 # Go workspace file
 go.work
+
+# Dumped TLS Keys for Debugging
+key.log
+
+# Debugging PCAPs
+*.pcapng

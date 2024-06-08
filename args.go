@@ -7,13 +7,14 @@ import (
 )
 
 type Arguments struct {
-	Host      string
-	TestsDir  string
-	User      string
-	Password  string
-	Threads   int
-	Timeout   int
-	Verbosity int
+	Host       string
+	TestsDir   string
+	User       string
+	Password   string
+	Threads    int
+	Timeout    int
+	Verbosity  int
+	TlsLogPath string
 }
 
 func parseArguments() Arguments {
@@ -24,7 +25,8 @@ func parseArguments() Arguments {
 	flag.StringVar(&args.Password, "p", "wazuh", "The password for the Wazuh API. Defaults to 'wazuh'.")
 	flag.IntVar(&args.Threads, "t", 1, "The number of threads to use for running tests. Defaults to 1.")
 	flag.IntVar(&args.Timeout, "o", 5, "The timeout for API requests. Defaults to 5 seconds.")
-	
+	flag.StringVar(&args.TlsLogPath, "tls-log", "", "Enable and log the TLS key to the path specified.")
+
 	// Custom parsing for verbosity
 	var vFlag, vvFlag bool
 	flag.BoolVar(&vFlag, "v", false, "Enable verbosity level 1.")

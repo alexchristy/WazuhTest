@@ -26,9 +26,10 @@ type WazuhServer struct {
 	loginEndpoint   string
 	logTestEndpoint string
 	httpClient      *http.Client
+	sessionToken    string
 }
 
-func NewWazuhServer(ApiUser string, ApiPass string, Hostname string, Timeout int) (*WazuhServer, error) {
+func NewWazuhServer(ApiUser string, ApiPass string, Hostname string, Timeout int, tlsKeyLogPath string) (*WazuhServer, error) {
 	ws := new(WazuhServer)
 
 	// Validate the input
@@ -62,6 +63,10 @@ func NewWazuhServer(ApiUser string, ApiPass string, Hostname string, Timeout int
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		},
+	}
+
+	if len(tlsKeyLogPath) > 0 {
+		enableTLSKeyLogging(ws.httpClient, tlsKeyLogPath)
 	}
 
 	// Attempt to authenticate to the manager
@@ -135,6 +140,18 @@ func (ws *WazuhServer) getBaseUrl() string {
 
 func (ws *WazuhServer) getToken() string {
 	return ws.token
+}
+
+func (ws *WazuhServer) hasSession() bool {
+	return len(ws.sessionToken) > 0
+}
+
+func (ws *WazuhServer) getSessionToken() string {
+	return ws.sessionToken
+}
+
+func (ws *WazuhServer) setSessionToken(token string) {
+	ws.sessionToken = token
 }
 
 func (ws *WazuhServer) sendRequest(req *http.Request, headers map[string]interface{}) (map[string]interface{}, error) {

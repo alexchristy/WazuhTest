@@ -12,7 +12,6 @@
             "LogFilePath": "502.txt" 
         },
         {
-            "Version": "0.1",
             "TestDescription": "Sniffing mode rule test.",
             "RuleID": "5104",
             "RuleLevel": "8",
@@ -24,7 +23,7 @@
             },
             "Decoder": {
                 "name": "kernel",
-                "bleh": "bleh"
+                "incorrectKey": "This should be flagged"
             },
             "LogFilePath": "5104.txt"
         }

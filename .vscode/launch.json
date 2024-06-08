@@ -11,7 +11,8 @@
                 "-t", "3",
                 "-u", "wunit",
                 "-p", "DNSTooC00L@Skool",
-                "-v", "10.0.0.5"
+                "-v", "10.0.0.5",
+                "--tls-log", "./key.log"
             ],
             "env": {},
             "buildFlags": "",

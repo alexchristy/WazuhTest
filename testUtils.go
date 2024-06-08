@@ -37,7 +37,7 @@ import (
 // Groups can be nested to any depth. The test runner will recursively search
 // for test definition files and log files in the root directory and all
 // subdirectories.
-func runTestGroup(ws WazuhServer, rootTestDir string, numThreads int, verbosity int, timeout int) (int, int, int, error) {
+func runTestGroup(ws *WazuhServer, rootTestDir string, numThreads int, verbosity int) (int, int, int, error) {
 
 	// Check if rootTestDir exists
 	exists, err := fileExists(rootTestDir)
@@ -74,13 +74,15 @@ func runTestGroup(ws WazuhServer, rootTestDir string, numThreads int, verbosity 
 	var numTests int = 0
 	var numFailedTests int = 0
 	var numWarnedTests int = 0
-	var errors [][]string
+	errors := make(map[string][]string)
+	warnings := make(map[string][]string)
 
+	// Run tests concurrently with a max of user-defined number of threads
 	// Recurse into subdirectories to evaluate tests
 	// test tree from bottom up
 	for _, subdirectory := range subdirectories {
 		path := filepath.Join(rootTestDir, subdirectory.Name())
-		currNumTests, currFailedTests, currWarnTests, err := runTestGroup(ws, path, numThreads, verbosity, timeout)
+		currNumTests, currFailedTests, currWarnTests, err := runTestGroup(ws, path, numThreads, verbosity)
 
 		numTests += currNumTests
 		numFailedTests += currFailedTests
@@ -90,6 +92,9 @@ func runTestGroup(ws WazuhServer, rootTestDir string, numThreads int, verbosity 
 			return currNumTests, numFailedTests, numWarnedTests, err
 		}
 	}
+
+	// We are no longer recursing now
+	PrintBoldWhite("Running tests in: " + rootTestDir)
 
 	// Load all test definitions
 	var logTests []LogTest = []LogTest{}
@@ -110,7 +115,7 @@ func runTestGroup(ws WazuhServer, rootTestDir string, numThreads int, verbosity 
 
 	if len(logTests) > 0 && verbosity > 0 {
 		totalTests := len(logTests) + invalidTests
-		PrintBoldWhite("Sucessfully loaded " + strconv.Itoa(len(logTests)) + "/" + strconv.Itoa(totalTests) + " tests from " + rootTestDir)
+		PrintWhite("Sucessfully loaded " + strconv.Itoa(len(logTests)) + "/" + strconv.Itoa(totalTests) + " tests")
 	}
 
 	// There should be a one to one mapping of
@@ -133,9 +138,6 @@ func runTestGroup(ws WazuhServer, rootTestDir string, numThreads int, verbosity 
 	semaphore := make(chan struct{}, numThreads)
 	var wg sync.WaitGroup
 
-	var warnings [][]string
-
-	// Run tests concurrently with a max of user-defined number of threads
 	for _, logTest := range logTests {
 		wg.Add(1)
 		semaphore <- struct{}{} // acquire a slot
@@ -153,8 +155,8 @@ func runTestGroup(ws WazuhServer, rootTestDir string, numThreads int, verbosity 
 				numWarnedTests++
 			}
 
-			errors = append(errors, testErrors)
-			warnings = append(warnings, testWarnings)
+			errors[logTest.RuleID] = testErrors
+			warnings[logTest.RuleID] = testWarnings
 
 			bar.Add(1)
 		}(logTest)
@@ -165,24 +167,25 @@ func runTestGroup(ws WazuhServer, rootTestDir string, numThreads int, verbosity 
 
 	fmt.Printf("\n")
 
-	// len(logTests) == len(errors) == len(warnings)
-	for i, test := range logTests {
+	for _, test := range logTests {
 		failedTest := false
+		testErrors := errors[test.RuleID]
+		testWarnings := warnings[test.RuleID]
 
-		if len(errors[i]) > 0 {
+		if len(testErrors) > 0 {
 			failedTest = true
 			PrintRed("[FAILED] Test: (RuleID: " + test.getRuleID() + ") " + test.getTestDescription())
-			for _, e := range errors[i] {
-				PrintRed("+ " + e)
+			for _, e := range testErrors {
+				PrintRed("+ " + e + "\n")
 			}
 		}
-		if verbosity > 1 && len(warnings[i]) > 0 {
+		if verbosity > 1 && len(testWarnings) > 0 {
 			// Only print warnings header if there were no errors
 			if !failedTest {
 				PrintYellow("[WARNING] Test: (RuleID: " + test.getRuleID() + ") " + test.getTestDescription())
 			}
-			for _, w := range warnings[i] {
-				PrintYellow("+ " + w)
+			for _, w := range testWarnings {
+				PrintYellow("+ " + w + "\n")
 			}
 		}
 	}
@@ -196,7 +199,7 @@ func runTestGroup(ws WazuhServer, rootTestDir string, numThreads int, verbosity 
 
 // This function will run a single test and return back the pass/fail
 // and any errors that occurred during the test.
-func runTest(ws WazuhServer, logTest LogTest) (bool, []string, []string) {
+func runTest(ws *WazuhServer, logTest LogTest) (bool, []string, []string) {
 
 	var errors []string
 	var warnings []string
@@ -220,6 +223,13 @@ func runTest(ws WazuhServer, logTest LogTest) (bool, []string, []string) {
 		"log_format": logTest.getFormat(),
 		"location":   "WazuhTestRunner",
 	}
+
+	// Keep the session alive to prevent
+	// unneccesary reloading of decoders and rulesets
+	if ws.hasSession() {
+		logTestData["token"] = ws.getSessionToken()
+	}
+
 	jsonData, err := json.Marshal(logTestData)
 	if err != nil {
 		errors = append(errors, "Error marshalling log data: "+err.Error())
@@ -251,6 +261,15 @@ func runTest(ws WazuhServer, logTest LogTest) (bool, []string, []string) {
 	err = json.Unmarshal(jsonBytes, &response)
 	if err != nil {
 		log.Fatalf("Error unmarshalling Wazuh server response JSON to Response struct: %v", err)
+	}
+
+	// Save the session token if we do not have
+	// one saved or if it has changed
+	retSessionToken := response.Data.Token
+	if len(retSessionToken) > 0 {
+		if !ws.hasSession() {
+			ws.setSessionToken(retSessionToken)
+		}
 	}
 
 	// Validate the response
@@ -520,9 +539,9 @@ func loadTestDef(path string, verbosity int) ([]LogTest, int, error) {
 		if !valid {
 			// Print warnings or handle invalid tests as needed
 			if logTest.getRuleID() == "" {
-				PrintWhite("[FAILED LOAD] " + path + ": Test #" + strconv.Itoa(i+1))
+				PrintRed("[FAILED LOAD] " + path + ": Test #" + strconv.Itoa(i+1))
 			} else {
-				PrintWhite("[FAILED LOAD] Test: (RuleID: " + logTest.getRuleID() + ") " + logTest.getTestDescription())
+				PrintRed("[FAILED LOAD] Test: (RuleID: " + logTest.getRuleID() + ") " + logTest.getTestDescription())
 			}
 
 			invalidTestCount++
@@ -538,17 +557,28 @@ func loadTestDef(path string, verbosity int) ([]LogTest, int, error) {
 				for _, e := range loadErrors {
 					PrintRed("+ " + e)
 				}
+				fmt.Printf("\n")
 			}
 
-			// Print Warnings for: -vv (2)
-			if verbosity > 1 && len(loadWarnings) > 0 {
-				for _, w := range loadWarnings {
-					PrintYellow("+ " + w)
-				}
-			}
+		}
 
+		// We will print the warning header if verboisty 2 (-vv)
+		// and we haven't already printed the failed load header
+		var hasWarnings bool = (len(loadWarnings) > 0)
+		if valid && hasWarnings && verbosity > 1 {
+			// Print warnings or handle invalid tests as needed
+			if logTest.getRuleID() == "" {
+				PrintYellow("[LOAD WARNING] " + path + ": Test #" + strconv.Itoa(i+1))
+			} else {
+				PrintYellow("[LOAD WARNING] Test: (RuleID: " + logTest.getRuleID() + ") " + logTest.getTestDescription())
+			}
+		}
+
+		if hasWarnings && verbosity > 1 {
+			for _, e := range loadWarnings {
+				PrintYellow("+ " + e)
+			}
 			fmt.Printf("\n")
-
 		}
 
 		// Do not append invalid tests

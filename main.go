@@ -6,7 +6,7 @@ func main() {
 	args := parseArguments()
 
 	// Initialize the WazuhServer object
-	wazuhServer, err := NewWazuhServer(args.User, args.Password, args.Host, args.Timeout)
+	wazuhServer, err := NewWazuhServer(args.User, args.Password, args.Host, args.Timeout, args.TlsLogPath)
 	if err != nil {
 		PrintRed("Error initializing WazuhServer object: " + err.Error())
 		return
@@ -14,7 +14,7 @@ func main() {
 
 	wazuhServer.checkConnection(args.Verbosity)
 
-	numTests, numFailedTests, numWarnTests, err := runTestGroup(*wazuhServer, "./tests", args.Threads, args.Verbosity, args.Timeout)
+	numTests, numFailedTests, numWarnTests, err := runTestGroup(wazuhServer, "./tests", args.Threads, args.Verbosity)
 	if err != nil {
 		panic(err)
 	}

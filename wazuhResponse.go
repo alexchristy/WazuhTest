@@ -16,6 +16,7 @@ type Output struct {
 type Data struct {
 	Output   Output   `json:"output"`
 	Messages []string `json:"messages,omitempty"`
+	Token    string   `json:"token,omitempty"`
 }
 
 type Response struct {
