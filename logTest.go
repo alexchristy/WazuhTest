@@ -28,8 +28,8 @@ func NewLogTest(Version string, RuleID string, RuleLevel string, RuleDescription
 	lt := new(LogTest)
 
 	validTest := true // Want to print out all invalid parts of the test
-	errors := []string{}
-	warnings := []string{}
+	var errors []string
+	var warnings []string
 
 	// Version
 	valid, err, warn := isValidVersion(Version)
@@ -134,7 +134,7 @@ func isValidVersion(Version string) (bool, []string, []string) {
 	_, exists := validVersions[Version]
 
 	if !exists {
-		errors = append(errors, fmt.Sprintf("Version: %s is not a valid test version", Version))
+		errors = append(errors, fmt.Sprintf("Invalid test version: %s", Version))
 		return false, errors, warnings
 	}
 
@@ -145,8 +145,8 @@ func isValidVersion(Version string) (bool, []string, []string) {
 // Must be between 0 and 999999
 // See: https://documentation.wazuh.com/current/user-manual/ruleset/ruleset-xml-syntax/rules.html#rules-rule
 func isValidRuleID(RuleID string) (bool, []string, []string) {
-	var errors []string
-	var warnings []string
+	errors := []string{}
+	warnings := []string{}
 
 	// Convert RuleID to int
 	RuleIDInt, err := strconv.Atoi(RuleID)
