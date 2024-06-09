@@ -526,8 +526,163 @@ func Test_isValidFormat(t *testing.T) {
 	}
 }
 
+func Fuzz_isValidFormat(f *testing.F) {
+	examples := []string{"syslog", "audit", "multi-log", "bleh*bleh"}
+	for _, ex := range examples {
+		f.Add(ex)
+	}
+
+	f.Fuzz(func(t *testing.T, f string) {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Errorf("Panic occured: %v", r)
+			}
+		}()
+
+		isValidFormat(f)
+	})
+}
+
 func Benchmark_isValidFormat_invalidFormats(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		isValidFormat(strconv.Itoa(i))
+	}
+}
+
+func Test_isValidDecoder(t *testing.T) {
+	type args struct {
+		decoder map[string]string
+	}
+	tests := []struct {
+		name  string
+		args  args
+		want  bool
+		want1 []string
+		want2 []string
+	}{
+		// Valid decoders
+		{name: "Valid single element decoder", args: args{map[string]string{"key": "value"}}, want: true, want1: []string{}, want2: []string{}},
+		{name: "Valid single element unicode decoder", args: args{map[string]string{"🥝🥝": "🥝🥝"}}, want: true, want1: []string{}, want2: []string{}},
+		{name: "Valid empty decoder with warning", args: args{map[string]string{}}, want: true, want1: []string{}, want2: []string{}},
+		{name: "Valid multi element decoder", args: args{map[string]string{"key1": "value1", "key2": "value2"}}, want: true, want1: []string{}, want2: []string{}},
+		{name: "Valid single key empty value decoder with warning", args: args{map[string]string{"emptyKey": ""}}, want: true, want1: []string{}, want2: []string{"Decoder value for key emptyKey is empty"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, got1, got2 := isValidDecoder(tt.args.decoder)
+			if got != tt.want {
+				t.Errorf("isValidDecoder() got = %v, want %v", got, tt.want)
+			}
+			if !reflect.DeepEqual(got1, tt.want1) {
+				t.Errorf("isValidDecoder() got1 = %v, want %v", got1, tt.want1)
+			}
+			if !reflect.DeepEqual(got2, tt.want2) {
+				t.Errorf("isValidDecoder() got2 = %v, want %v", got2, tt.want2)
+			}
+		})
+	}
+}
+
+func Benchmark_isValidDecoder(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		num := strconv.Itoa(i)
+		isValidDecoder(map[string]string{num: num})
+	}
+}
+
+func Test_isValidPredecoder(t *testing.T) {
+	type args struct {
+		predecoder map[string]string
+	}
+	tests := []struct {
+		name  string
+		args  args
+		want  bool
+		want1 []string
+		want2 []string
+	}{ // Valid predecoders
+		{name: "Valid single element predecoder", args: args{map[string]string{"key": "value"}}, want: true, want1: []string{}, want2: []string{}},
+		{name: "Valid single element unicode predecoder", args: args{map[string]string{"🥝🥝": "🥝🥝"}}, want: true, want1: []string{}, want2: []string{}},
+		{name: "Valid empty predecoder with warning", args: args{map[string]string{}}, want: true, want1: []string{}, want2: []string{}},
+		{name: "Valid multi element predecoder", args: args{map[string]string{"key1": "value1", "key2": "value2"}}, want: true, want1: []string{}, want2: []string{}},
+		{name: "Valid single key empty value predecoder with warning", args: args{map[string]string{"emptyKey": ""}}, want: true, want1: []string{}, want2: []string{"Predecoder value for key emptyKey is empty"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, got1, got2 := isValidPredecoder(tt.args.predecoder)
+			if got != tt.want {
+				t.Errorf("isValidPredecoder() got = %v, want %v", got, tt.want)
+			}
+			if !reflect.DeepEqual(got1, tt.want1) {
+				t.Errorf("isValidPredecoder() got1 = %v, want %v", got1, tt.want1)
+			}
+			if !reflect.DeepEqual(got2, tt.want2) {
+				t.Errorf("isValidPredecoder() got2 = %v, want %v", got2, tt.want2)
+			}
+		})
+	}
+}
+
+func Benchmark_isValidPredecoder(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		num := strconv.Itoa(i)
+		isValidPredecoder(map[string]string{num: num})
+	}
+}
+
+func Test_isValidTestDescription(t *testing.T) {
+	type args struct {
+		TestDescription string
+	}
+	tests := []struct {
+		name  string
+		args  args
+		want  bool
+		want1 []string
+		want2 []string
+	}{
+		// Valid test descriptions
+		{name: "Valid test description", args: args{"This is a valid test description"}, want: true, want1: []string{}, want2: []string{}},
+		{name: "Valid empty test description with warning", args: args{""}, want: true, want1: []string{}, want2: []string{"Test description is empty"}},
+		{name: "Valid unicode test description", args: args{"🥝🥝🥝🥝"}, want: true, want1: []string{}, want2: []string{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, got1, got2 := isValidTestDescription(tt.args.TestDescription)
+			if got != tt.want {
+				t.Errorf("isValidTestDescription() got = %v, want %v", got, tt.want)
+			}
+			if !reflect.DeepEqual(got1, tt.want1) {
+				t.Errorf("isValidTestDescription() got1 = %v, want %v", got1, tt.want1)
+			}
+			if !reflect.DeepEqual(got2, tt.want2) {
+				t.Errorf("isValidTestDescription() got2 = %v, want %v", got2, tt.want2)
+			}
+		})
+	}
+}
+
+func Fuzz_isValidTestDescription(f *testing.F) {
+	examples := []string{"syslog", "audit", "multi-log", "bleh*bleh", "This is a description🥝"}
+	for _, ex := range examples {
+		f.Add(ex)
+	}
+
+	f.Fuzz(func(t *testing.T, td string) {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Errorf("Panic occured: %v", r)
+			}
+		}()
+
+		isValidTestDescription(td)
+	})
+}
+
+func Benchmark_isValidTestDescription(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		isValidTestDescription(strconv.Itoa(i))
 	}
 }

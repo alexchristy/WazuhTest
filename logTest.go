@@ -359,7 +359,7 @@ func isValidDecoder(decoder map[string]string) (bool, []string, []string) {
 	for key, value := range decoder {
 		if value == "" {
 			warnings = append(warnings, "Decoder value for key "+key+" is empty")
-			return false, errors, warnings
+			continue
 		}
 	}
 
@@ -377,7 +377,6 @@ func isValidPredecoder(predecoder map[string]string) (bool, []string, []string) 
 	for key, value := range predecoder {
 		if value == "" {
 			warnings = append(warnings, "Predecoder value for key "+key+" is empty")
-			return false, errors, warnings
 		}
 	}
 
@@ -393,7 +392,6 @@ func isValidTestDescription(TestDescription string) (bool, []string, []string) {
 	// but should generally be avoided
 	if TestDescription == "" {
 		warnings = append(warnings, "Test description is empty")
-		return false, errors, warnings
 	}
 
 	return true, errors, warnings
