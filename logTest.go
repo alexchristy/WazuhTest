@@ -207,7 +207,7 @@ func isValidRuleDescription(RuleDescription string) (bool, []string, []string) {
 
 	if RuleDescription == "" {
 		warnings = append(warnings, "Rule description is empty")
-		return false, errors, warnings
+		return true, errors, warnings
 	}
 
 	return true, errors, warnings
@@ -241,7 +241,6 @@ func isValidLogFilePath(LogFilePath string) (bool, []string, []string) {
 
 	// Check if the log file is empty
 	stat, err := file.Stat()
-
 	if err != nil {
 		errors = append(errors, "Error reading log file size")
 		return false, errors, warnings
@@ -253,19 +252,14 @@ func isValidLogFilePath(LogFilePath string) (bool, []string, []string) {
 	}
 
 	// Check if the log file has only one line
-	lineCount, err := fileHasOneLine(file)
-
+	hasOneLine, err := fileHasOneLine(file)
 	if err != nil {
 		errors = append(errors, "Error reading log file lines")
 		return false, errors, warnings
 	}
 
-	if lineCount < 1 {
-		errors = append(errors, "Log file should have at least one line")
-		return false, errors, warnings
-	}
-	if lineCount > 1 {
-		errors = append(errors, "Log file has more than one line")
+	if !hasOneLine {
+		errors = append(errors, "Log file should only have one line")
 		return false, errors, warnings
 	}
 
@@ -276,7 +270,7 @@ func isValidLogFilePath(LogFilePath string) (bool, []string, []string) {
 // up to a maximum of 2 lines. If the file has more than
 // 1 line, it returns 2. If the file has 1 line, it returns 1.
 // If the file has no lines, it returns 0.
-func fileHasOneLine(r io.Reader) (int, error) {
+func fileHasOneLine(r io.Reader) (bool, error) {
 	buf := make([]byte, 1024)
 	count := 0
 	lineSep := []byte{'\n'}
@@ -290,7 +284,7 @@ func fileHasOneLine(r io.Reader) (int, error) {
 
 			// If we've counted 2 or more lines, return 2
 			if count >= 2 {
-				return 2, nil
+				return false, nil
 			}
 		}
 
@@ -298,11 +292,11 @@ func fileHasOneLine(r io.Reader) (int, error) {
 			if err == io.EOF {
 				// If the file has data but no newline characters, it's considered one line
 				if hasData && count == 0 {
-					return 1, nil
+					return true, nil
 				}
-				return count, nil
+				return count == 1, nil
 			}
-			return count, err
+			return count == 1, err
 		}
 	}
 }
@@ -333,7 +327,7 @@ func isValidFormat(format string) (bool, []string, []string) {
 
 	// Empty Format is not an error but should generally be avoided
 	if format == "" {
-		warnings = append(warnings, "Format is empty")
+		errors = append(errors, "Format is empty")
 		return false, errors, warnings
 	}
 

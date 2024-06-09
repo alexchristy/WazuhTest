@@ -28,3 +28,6 @@ key.log
 
 # Built binary
 WazuhTest
+
+# Ignore generated logs
+*.log
