@@ -1,1 +1,0 @@
-ossec: Manager started.
