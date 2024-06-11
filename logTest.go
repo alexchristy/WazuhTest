@@ -28,8 +28,8 @@ func NewLogTest(Version string, RuleID string, RuleLevel string, RuleDescription
 	lt := new(LogTest)
 
 	validTest := true // Want to print out all invalid parts of the test
-	var errors []string
-	var warnings []string
+	errors := []string{}
+	warnings := []string{}
 
 	// Version
 	valid, err, warn := isValidVersion(Version)
@@ -152,17 +152,17 @@ func isValidRuleID(RuleID string) (bool, []string, []string) {
 	RuleIDInt, err := strconv.Atoi(RuleID)
 
 	if err != nil {
-		errors = append(errors, "Rule ID is not an integer")
+		errors = append(errors, "Invalid rule ID is not an integer")
 		return false, errors, warnings
 	}
 
 	if RuleIDInt < 0 {
-		errors = append(errors, "Rule ID cannot be less than 0")
+		errors = append(errors, "Invalid rule ID cannot be less than 0")
 		return false, errors, warnings
 	}
 
 	if RuleIDInt > 999999 {
-		errors = append(errors, "Rule ID cannot be greater than 999999")
+		errors = append(errors, "Invalid rule ID cannot be greater than 999999")
 		return false, errors, warnings
 	}
 
@@ -180,19 +180,19 @@ func isValidRuleLevel(level string) (bool, []string, []string) {
 	levelInt, err := strconv.Atoi(level)
 
 	if err != nil {
-		errors = append(errors, "Rule level is not an integer")
+		errors = append(errors, "Invalid rule level is not an integer")
 		return false, errors, warnings
 	}
 
 	if levelInt < 0 {
 		// Cant be less than 0
-		errors = append(errors, "Rule level cannot be less than 0")
+		errors = append(errors, "Invalid rule level cannot be less than 0")
 		return false, errors, warnings
 	}
 
 	if levelInt > 16 {
 		// Cant be greater than 16
-		errors = append(errors, "Rule level cannot be greater than 16")
+		errors = append(errors, "Invalid rule level cannot be greater than 16")
 		return false, errors, warnings
 	}
 
@@ -325,9 +325,8 @@ func isValidFormat(format string) (bool, []string, []string) {
 		"multi-line",
 	}
 
-	// Empty Format is not an error but should generally be avoided
 	if format == "" {
-		errors = append(errors, "Format is empty")
+		errors = append(errors, "Invalid format is empty")
 		return false, errors, warnings
 	}
 
@@ -341,7 +340,7 @@ func isValidFormat(format string) (bool, []string, []string) {
 	}
 
 	if !valid {
-		errors = append(errors, fmt.Sprintf("Log format: %s is not valid", format))
+		errors = append(errors, fmt.Sprintf("Log format: %s is invalid", format))
 		return false, errors, warnings
 	}
 

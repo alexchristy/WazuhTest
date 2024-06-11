@@ -6,6 +6,7 @@ import (
 	"os"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -90,9 +91,9 @@ func Test_isValidRuleID(t *testing.T) {
 		{name: "Valid RuleID 101010", args: args{"101010"}, want: true, want1: []string{}, want2: []string{}},
 
 		// Invalid ruleID's
-		{name: "Invalid negative RuleID -15", args: args{"-15"}, want: false, want1: []string{"Rule ID cannot be less than 0"}, want2: []string{}},
-		{name: "Invalid too large RuleID 1234567890", args: args{"1234567890"}, want: false, want1: []string{"Rule ID cannot be greater than 999999"}, want2: []string{}},
-		{name: "Invalid non-numeric RuleID hello", args: args{"hello"}, want: false, want1: []string{"Rule ID is not an integer"}, want2: []string{}},
+		{name: "Invalid negative RuleID -15", args: args{"-15"}, want: false, want1: []string{"Invalid rule ID cannot be less than 0"}, want2: []string{}},
+		{name: "Invalid too large RuleID 1234567890", args: args{"1234567890"}, want: false, want1: []string{"Invalid rule ID cannot be greater than 999999"}, want2: []string{}},
+		{name: "Invalid non-numeric RuleID hello", args: args{"hello"}, want: false, want1: []string{"Invalid rule ID is not an integer"}, want2: []string{}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -165,9 +166,21 @@ func Test_isValidRuleLevel(t *testing.T) {
 			if got != tt.want {
 				t.Errorf("isValidRuleLevel() got = %v, want %v", got, tt.want)
 			}
-			if !reflect.DeepEqual(got1, tt.want1) {
-				t.Errorf("isValidRuleLevel() got1 = %v, want %v", got1, tt.want1)
+
+			if len(tt.want1) > 0 { // If we are expecting errors
+				hasError := false
+				for _, err := range got1 { // errors
+					err := strings.ToLower(err)
+					if strings.Contains(err, "invalid") && strings.Contains(err, "rule level") {
+						hasError = true
+						break
+					}
+				}
+				if !hasError {
+					t.Errorf("Expected to get error for invalid rule level")
+				}
 			}
+
 			if !reflect.DeepEqual(got2, tt.want2) {
 				t.Errorf("isValidRuleLevel() got2 = %v, want %v", got2, tt.want2)
 			}
@@ -516,9 +529,21 @@ func Test_isValidFormat(t *testing.T) {
 			if got != tt.want {
 				t.Errorf("isValidFormat() got = %v, want %v", got, tt.want)
 			}
-			if !reflect.DeepEqual(got1, tt.want1) {
-				t.Errorf("isValidFormat() got1 = %v, want %v", got1, tt.want1)
+
+			if len(tt.want1) > 0 { // If we are expecting errors
+				hasError := false
+				for _, err := range got1 { // errors
+					err := strings.ToLower(err)
+					if strings.Contains(err, "invalid") && strings.Contains(err, "format") {
+						hasError = true
+						break
+					}
+				}
+				if !hasError {
+					t.Errorf("Expected to get error for invalid rule level")
+				}
 			}
+
 			if !reflect.DeepEqual(got2, tt.want2) {
 				t.Errorf("isValidFormat() got2 = %v, want %v", got2, tt.want2)
 			}
@@ -684,5 +709,390 @@ func Fuzz_isValidTestDescription(f *testing.F) {
 func Benchmark_isValidTestDescription(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		isValidTestDescription(strconv.Itoa(i))
+	}
+}
+
+func createTestLog(log string) (string, error) {
+	logFile, err := os.CreateTemp("", "testLog*")
+	if err != nil {
+		return "", err
+	}
+	defer func(logFile *os.File) {
+		err := logFile.Close()
+		if err != nil {
+			panic(err)
+		}
+	}(logFile)
+
+	_, err = logFile.WriteString(log)
+	if err != nil {
+		return "", err
+	}
+	_, err = logFile.Seek(0, io.SeekStart)
+	if err != nil {
+		return "", err
+	}
+
+	return logFile.Name(), nil
+}
+
+func Test_NewLogTestValidTests(t *testing.T) {
+	type args struct {
+		Version         string
+		RuleID          string
+		RuleLevel       string
+		RuleDescription string
+		LogFilePath     string
+		Format          string
+		Decoder         map[string]string
+		Predecoder      map[string]string
+		TestDescription string
+	}
+
+	// Minimal log test
+	ltMinFile, err := createTestLog("This is a test log file.")
+	if err != nil {
+		t.Fatalf("Failed to create minimal LogTest log file")
+	}
+	ltMinimalArgs := args{
+		Version:         "0.1",
+		RuleID:          "100",
+		RuleLevel:       "8",
+		RuleDescription: "This is a description.",
+		LogFilePath:     ltMinFile,
+		Format:          "syslog",
+		Decoder:         map[string]string{},
+		Predecoder:      map[string]string{},
+		TestDescription: "Minimal LogTest for testing purposes",
+	}
+	// corr = correct (i.e. valid/will generate)
+	corrMinLogTest := new(LogTest)
+	corrMinLogTest.Version = "0.1"
+	corrMinLogTest.RuleID = "100"
+	corrMinLogTest.RuleLevel = "8"
+	corrMinLogTest.RuleDescription = "This is a description."
+	corrMinLogTest.LogFilePath = ltMinFile
+	corrMinLogTest.Format = "syslog"
+	corrMinLogTest.Decoder = map[string]string{}
+	corrMinLogTest.Predecoder = map[string]string{}
+	corrMinLogTest.TestDescription = "Minimal LogTest for testing purposes"
+
+	// All warnings log test
+	allWarningArgs := args{
+		Version:         "",
+		RuleID:          "1000",
+		RuleLevel:       "14",
+		RuleDescription: "",
+		LogFilePath:     ltMinFile,
+		Format:          "syslog",
+		Decoder: map[string]string{
+			"emptyDecoderKey": "",
+		},
+		Predecoder: map[string]string{
+			"emptyPredecoderKey": "",
+		},
+		TestDescription: "",
+	}
+	allWarningTest := new(LogTest)
+	allWarningTest.Version = ""
+	allWarningTest.RuleID = "1000"
+	allWarningTest.RuleLevel = "14"
+	allWarningTest.RuleDescription = ""
+	allWarningTest.LogFilePath = ltMinFile
+	allWarningTest.Format = "syslog"
+	allWarningTest.Decoder = map[string]string{
+		"emptyDecoderKey": "",
+	}
+	allWarningTest.Predecoder = map[string]string{
+		"emptyPredecoderKey": "",
+	}
+
+	allExpectedWarns := []string{
+		"Version is empty using latest test version",
+		"Rule description is empty",
+		"Decoder value for key emptyDecoderKey is empty",
+		"Predecoder value for key emptyPredecoderKey is empty",
+		"Test description is empty",
+	}
+
+	tests := []struct {
+		name  string
+		args  args
+		want  *LogTest
+		want1 bool
+		want2 []string
+		want3 []string
+	}{
+		{name: "Valid minimum valid LogTest", args: ltMinimalArgs, want: corrMinLogTest, want1: true, want2: []string{}, want3: []string{}},
+		{name: "Valid all warnings LogTest", args: allWarningArgs, want: allWarningTest, want1: true, want2: []string{}, want3: allExpectedWarns},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, got1, got2, got3 := NewLogTest(tt.args.Version, tt.args.RuleID, tt.args.RuleLevel, tt.args.RuleDescription, tt.args.LogFilePath, tt.args.Format, tt.args.Decoder, tt.args.Predecoder, tt.args.TestDescription)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("NewLogTest() got = %v, want %v", got, tt.want)
+			}
+			if got1 != tt.want1 {
+				t.Errorf("NewLogTest() got1 = %v, want %v", got1, tt.want1)
+			}
+			if !reflect.DeepEqual(got2, tt.want2) {
+				t.Errorf("NewLogTest() got2 = %v, want %v", got2, tt.want2)
+			}
+			if !reflect.DeepEqual(got3, tt.want3) {
+				t.Errorf("NewLogTest() got3 = %v, want %v", got3, tt.want3)
+			}
+		})
+	}
+}
+
+func Test_NewLogTestInvalidVersion(t *testing.T) {
+	// Completely correct LogTest except for an invalid version
+	// which should make NewLogTest return back invalid for the
+	// object creation
+	logFilePath, err := createTestLog("This is a test log file.")
+	if err != nil {
+		t.Fatalf("Failed to create test log file")
+	}
+
+	version := "9999"
+	ruleId := "100"
+	ruleLevel := "8"
+	ruleDescription := "This is a description"
+	// logFilePath already set
+	format := "syslog"
+	decoder := map[string]string{}
+	predecoder := map[string]string{}
+	testDescription := "Valid test description."
+
+	expectedTest := new(LogTest)
+	expectedTest.Version = version
+	expectedTest.RuleID = ruleId
+	expectedTest.RuleLevel = ruleLevel
+	expectedTest.RuleDescription = ruleDescription
+	expectedTest.LogFilePath = logFilePath
+	expectedTest.Format = format
+	expectedTest.Decoder = decoder
+	expectedTest.Predecoder = predecoder
+	expectedTest.TestDescription = testDescription
+
+	gotTest, valid, errors, _ := NewLogTest(version, ruleId, ruleLevel, ruleDescription, logFilePath, format, decoder, predecoder, testDescription)
+
+	if !reflect.DeepEqual(gotTest, expectedTest) {
+		t.Errorf("NewLogTest() got = %v, want %v", gotTest, expectedTest)
+	}
+
+	if valid {
+		t.Errorf("Invalid version should render test invalid. Got: %v instead", valid)
+	}
+
+	if len(errors) < 1 {
+		// Fatal because next test will break
+		// if there are no errors
+		t.Fatalf("Expected at least one error")
+	}
+
+	// Use this approach to search
+	// for the error to create flexibility
+	// in the future
+	hasVersionErr := false
+	for _, err := range errors {
+		err = strings.ToLower(err)
+		if strings.Contains(err, "version") && strings.Contains(err, "invalid") {
+			hasVersionErr = true
+			break
+		}
+	}
+
+	if !hasVersionErr {
+		t.Errorf("Missing invalid version error")
+	}
+}
+
+func Test_NewLogTestInvalidRuleID(t *testing.T) {
+	// Completely correct LogTest except for an invalid rule id
+	// which should make NewLogTest return back invalid for the
+	// object creation
+	logFilePath, err := createTestLog("This is a test log file.")
+	if err != nil {
+		t.Fatalf("Failed to create test log file")
+	}
+
+	version := "0.1" // First valid version shipped
+	ruleId := "9999999999"
+	ruleLevel := "8"
+	ruleDescription := "This is a description"
+	// logFilePath already set
+	format := "syslog"
+	decoder := map[string]string{}
+	predecoder := map[string]string{}
+	testDescription := "Valid test description."
+
+	expectedTest := new(LogTest)
+	expectedTest.Version = version
+	expectedTest.RuleID = ruleId
+	expectedTest.RuleLevel = ruleLevel
+	expectedTest.RuleDescription = ruleDescription
+	expectedTest.LogFilePath = logFilePath
+	expectedTest.Format = format
+	expectedTest.Decoder = decoder
+	expectedTest.Predecoder = predecoder
+	expectedTest.TestDescription = testDescription
+
+	gotTest, valid, errors, _ := NewLogTest(version, ruleId, ruleLevel, ruleDescription, logFilePath, format, decoder, predecoder, testDescription)
+
+	if !reflect.DeepEqual(gotTest, expectedTest) {
+		t.Errorf("NewLogTest() got = %v, want %v", gotTest, expectedTest)
+	}
+
+	if valid {
+		t.Errorf("Invalid rule ID should render test invalid. Got: %v instead", valid)
+	}
+
+	if len(errors) < 1 {
+		// Fatal because next test will break
+		// if there are no errors
+		t.Fatalf("Expected at least one error")
+	}
+
+	// Use this approach to search
+	// for the error to create flexibility
+	// in the future
+	hasVersionErr := false
+	for _, err := range errors {
+		err = strings.ToLower(err)
+		if strings.Contains(err, "rule id") && strings.Contains(err, "invalid") {
+			hasVersionErr = true
+			break
+		}
+	}
+
+	if !hasVersionErr {
+		t.Errorf("Missing invalid rule id error")
+	}
+}
+
+func Test_NewLogTestInvalidRuleLevel(t *testing.T) {
+	// Completely correct LogTest except for an invalid rule level
+	// which should make NewLogTest return back invalid for the
+	// object creation
+	logFilePath, err := createTestLog("This is a test log file.")
+	if err != nil {
+		t.Fatalf("Failed to create test log file")
+	}
+
+	version := "0.1" // First valid version shipped
+	ruleId := "9999"
+	ruleLevel := "-15"
+	ruleDescription := "This is a description"
+	// logFilePath already set
+	format := "syslog"
+	decoder := map[string]string{}
+	predecoder := map[string]string{}
+	testDescription := "Valid test description."
+
+	expectedTest := new(LogTest)
+	expectedTest.Version = version
+	expectedTest.RuleID = ruleId
+	expectedTest.RuleLevel = ruleLevel
+	expectedTest.RuleDescription = ruleDescription
+	expectedTest.LogFilePath = logFilePath
+	expectedTest.Format = format
+	expectedTest.Decoder = decoder
+	expectedTest.Predecoder = predecoder
+	expectedTest.TestDescription = testDescription
+
+	gotTest, valid, errors, _ := NewLogTest(version, ruleId, ruleLevel, ruleDescription, logFilePath, format, decoder, predecoder, testDescription)
+
+	if !reflect.DeepEqual(gotTest, expectedTest) {
+		t.Errorf("NewLogTest() got = %v, want %v", gotTest, expectedTest)
+	}
+
+	if valid {
+		t.Errorf("Invalid rule level should render test invalid. Got: %v instead", valid)
+	}
+
+	if len(errors) < 1 {
+		// Fatal because next test will break
+		// if there are no errors
+		t.Fatalf("Expected at least one error")
+	}
+
+	// Use this approach to search
+	// for the error to create flexibility
+	// in the future
+	hasVersionErr := false
+	for _, err := range errors {
+		err = strings.ToLower(err)
+		if strings.Contains(err, "rule level") && strings.Contains(err, "invalid") {
+			hasVersionErr = true
+			break
+		}
+	}
+
+	if !hasVersionErr {
+		t.Errorf("Missing invalid rule level error")
+	}
+}
+
+func Test_NewLogTestInvalidFormat(t *testing.T) {
+	// Completely correct LogTest except for an invalid format
+	// which should make NewLogTest return back invalid for the
+	// object creation
+	logFilePath, err := createTestLog("This is a test log file.")
+	if err != nil {
+		t.Fatalf("Failed to create test log file")
+	}
+
+	version := "0.1" // First valid version shipped
+	ruleId := "9999"
+	ruleLevel := "15"
+	ruleDescription := "This is a description"
+	// logFilePath already set
+	format := "INVALID_FORMAT"
+	decoder := map[string]string{}
+	predecoder := map[string]string{}
+	testDescription := "Valid test description."
+
+	expectedTest := new(LogTest)
+	expectedTest.Version = version
+	expectedTest.RuleID = ruleId
+	expectedTest.RuleLevel = ruleLevel
+	expectedTest.RuleDescription = ruleDescription
+	expectedTest.LogFilePath = logFilePath
+	expectedTest.Format = format
+	expectedTest.Decoder = decoder
+	expectedTest.Predecoder = predecoder
+	expectedTest.TestDescription = testDescription
+
+	gotTest, valid, errors, _ := NewLogTest(version, ruleId, ruleLevel, ruleDescription, logFilePath, format, decoder, predecoder, testDescription)
+
+	if !reflect.DeepEqual(gotTest, expectedTest) {
+		t.Errorf("NewLogTest() got = %v, want %v", gotTest, expectedTest)
+	}
+
+	if valid {
+		t.Errorf("Invalid fomat should render test invalid. Got: %v instead", valid)
+	}
+
+	if len(errors) < 1 {
+		// Fatal because next test will break
+		// if there are no errors
+		t.Fatalf("Expected at least one error")
+	}
+
+	// Use this approach to search
+	// for the error to create flexibility
+	// in the future
+	hasVersionErr := false
+	for _, err := range errors {
+		err = strings.ToLower(err)
+		if strings.Contains(err, "format") && strings.Contains(err, "invalid") {
+			hasVersionErr = true
+			break
+		}
+	}
+
+	if !hasVersionErr {
+		t.Errorf("Missing invalid format error")
 	}
 }
