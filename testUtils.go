@@ -131,7 +131,7 @@ func runTestGroup(ws *WazuhServer, rootTestDir string, numThreads int, verbosity
 		PrintYellow("WARNING: " + rootTestDir + " has " + strconv.Itoa(diff) + " tests with no corresponding log files and will be skipped...")
 	}
 
-	// Create progres bar for visual feedback
+	// Create progress bar for visual feedback
 	bar := progressbar.NewOptions(len(logTests), progressbar.OptionSetDescription("Running: "+rootTestDir), progressbar.OptionShowCount())
 
 	// Initialize the semaphore to allow one test at a time initially
@@ -214,7 +214,7 @@ func runSingleTestRoutine(ws *WazuhServer, logTest LogTest, bar *progressbar.Pro
 	errors[logTest.RuleID] = testErrors
 	warnings[logTest.RuleID] = testWarnings
 
-	bar.Add(1)
+	_ = bar.Add(1)
 }
 
 // This function will run a single test and return back the pass/fail
