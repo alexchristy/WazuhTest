@@ -20,4 +20,8 @@ func main() {
 	}
 
 	printSummary(numTests, numFailedTests, numWarnTests)
+
+	if args.CliMode {
+		cliExit(numFailedTests)
+	}
 }

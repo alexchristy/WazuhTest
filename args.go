@@ -15,6 +15,7 @@ type Arguments struct {
 	Timeout    int
 	Verbosity  int
 	TlsLogPath string
+	CliMode    bool
 }
 
 func parseArguments() Arguments {
@@ -26,6 +27,7 @@ func parseArguments() Arguments {
 	flag.IntVar(&args.Threads, "t", 1, "The number of threads to use for running tests. Defaults to 1.")
 	flag.IntVar(&args.Timeout, "o", 5, "The timeout for API requests. Defaults to 5 seconds.")
 	flag.StringVar(&args.TlsLogPath, "tls-log", "", "Enable and log the TLS key to the path specified.")
+	flag.BoolVar(&args.CliMode, "c", false, "Enable cli mode for use in pipelines and automations. Defaults to false.")
 
 	// Custom parsing for verbosity
 	var vFlag, vvFlag bool
