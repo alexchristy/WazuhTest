@@ -31,3 +31,10 @@ WazuhTest
 
 # Ignore generated logs
 *.log
+
+# vscode config
+.vscode/
+.vscode/launch.json
+
+# IntelliJ configs
+.idea/*

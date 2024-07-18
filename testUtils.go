@@ -134,30 +134,20 @@ func runTestGroup(ws *WazuhServer, rootTestDir string, numThreads int, verbosity
 	// Create progress bar for visual feedback
 	bar := progressbar.NewOptions(len(logTests), progressbar.OptionSetDescription("Running: "+rootTestDir), progressbar.OptionShowCount())
 
-	// Initialize the semaphore to allow one test at a time initially
-	semaphore := make(chan struct{}, 1)
 	var wg sync.WaitGroup
 	var testOutputLock sync.Mutex
 
-	// Run the first test synchronously to capture the LogTest session token
-	if len(logTests) > 0 {
-		runSingleTestRoutine(ws, logTests[0], bar, &numTests, &numFailedTests, &numWarnedTests, errors, warnings, &testOutputLock)
-	}
-
 	// Reset the semaphore to allow the desired number of concurrent goroutines
-	semaphore = make(chan struct{}, numThreads)
+	threads := make(chan struct{}, numThreads)
 
 	// Proceed with the remaining tests
-	for i, logTest := range logTests {
-		if i == 0 {
-			continue // Skip the first test as it has already been run
-		}
+	for _, logTest := range logTests {
 		wg.Add(1)
-		semaphore <- struct{}{} // acquire a slot
+		threads <- struct{}{} // acquire a slot
 
 		go func(logTest LogTest) {
 			defer wg.Done()
-			defer func() { <-semaphore }() // release the slot
+			defer func() { <-threads }() // release the slot
 			runSingleTestRoutine(ws, logTest, bar, &numTests, &numFailedTests, &numWarnedTests, errors, warnings, &testOutputLock)
 		}(logTest)
 	}
@@ -169,8 +159,8 @@ func runTestGroup(ws *WazuhServer, rootTestDir string, numThreads int, verbosity
 
 	for _, test := range logTests {
 		failedTest := false
-		testErrors := errors[test.RuleID]
-		testWarnings := warnings[test.RuleID]
+		testErrors := errors[test.UUID]
+		testWarnings := warnings[test.UUID]
 
 		if len(testErrors) > 0 {
 			failedTest = true
@@ -200,9 +190,6 @@ func runTestGroup(ws *WazuhServer, rootTestDir string, numThreads int, verbosity
 func runSingleTestRoutine(ws *WazuhServer, logTest LogTest, bar *progressbar.ProgressBar, numTests *int, numFailedTests *int, numWarnedTests *int, errors map[string][]string, warnings map[string][]string, testOutputLock *sync.Mutex) {
 	passed, testErrors, testWarnings := runTest(ws, logTest)
 
-	testOutputLock.Lock()
-	defer testOutputLock.Unlock()
-
 	*numTests++
 	if !passed {
 		*numFailedTests++
@@ -211,8 +198,10 @@ func runSingleTestRoutine(ws *WazuhServer, logTest LogTest, bar *progressbar.Pro
 		*numWarnedTests++
 	}
 
-	errors[logTest.RuleID] = testErrors
-	warnings[logTest.RuleID] = testWarnings
+	testOutputLock.Lock()
+	errors[logTest.UUID] = testErrors
+	warnings[logTest.UUID] = testWarnings
+	testOutputLock.Unlock()
 
 	_ = bar.Add(1)
 }
