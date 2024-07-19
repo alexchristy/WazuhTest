@@ -11,6 +11,7 @@ type Output struct {
 	Rule       Rule              `json:"rule"`
 	Predecoder map[string]string `json:"predecoder,omitempty"`
 	Decoder    map[string]string `json:"decoder,omitempty"`
+	Data       map[string]string `json:"data,omitempty"`
 }
 
 type Data struct {

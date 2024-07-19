@@ -340,7 +340,7 @@ func validateLogTestResponse(logTest LogTest, response Response) (bool, []string
 	}
 
 	// ======( Predecoder Validation )====== //
-	passed, predecoderErrors, predecoderWarnings := validateDecoder(logTest.getPredecoder(), response.Data.Output.Predecoder, "Predecoder")
+	passed, predecoderErrors, predecoderWarnings := validateDecoder(logTest.getPredecoder(), response.Data.Output.Predecoder, response.Data.Output.Data, "Pre-decoder")
 	if !passed {
 		errors = append(errors, predecoderErrors...)
 		warnings = append(warnings, predecoderWarnings...)
@@ -348,7 +348,7 @@ func validateLogTestResponse(logTest LogTest, response Response) (bool, []string
 	}
 
 	// ======( Decoder Validation )====== //
-	passed, decoderErrors, decoderWarnings := validateDecoder(logTest.getDecoder(), response.Data.Output.Decoder, "Decoder")
+	passed, decoderErrors, decoderWarnings := validateDecoder(logTest.getDecoder(), response.Data.Output.Decoder, response.Data.Output.Data, "Decoder")
 	if !passed {
 		errors = append(errors, decoderErrors...)
 		warnings = append(warnings, decoderWarnings...)
@@ -477,7 +477,7 @@ func validateRuleDescription(expected string, got string) (bool, []string, []str
 	return true, errors, warnings
 }
 
-func validateDecoder(expected map[string]string, got map[string]string, decoderType string) (bool, []string, []string) {
+func validateDecoder(expected map[string]string, gotDecoder map[string]string, gotData map[string]string, decoderType string) (bool, []string, []string) {
 	var errors []string
 	var warnings []string
 	var passed bool = true
@@ -491,17 +491,28 @@ func validateDecoder(expected map[string]string, got map[string]string, decoderT
 
 	for key, val := range expected {
 		// Check if the key exists in the returned Decoder
-		_, ok := got[key]
-		if !ok {
+		// or the data dictionary
+		_, decoderOk := gotDecoder[key]
+		_, dataOk := gotData[key]
+		if !decoderOk && !dataOk {
 			passed = false
 			errors = append(errors, "Expected key: "+key+" not found in returned "+decoderType)
 			continue
 		}
 
+		var foundVal string
+		if decoderOk {
+			foundVal = gotDecoder[key]
+		} else if dataOk {
+			foundVal = gotData[key]
+		} else {
+			panic("Did not skip key in a decoder that does not exist in response.")
+		}
+
 		// Check if the value of the key matches the expected value
-		if val != got[key] {
+		if foundVal != val {
 			passed = false
-			errors = append(errors, "Expected value: "+val+" for key: "+key+" in returned "+decoderType+" Got value: "+got[key])
+			errors = append(errors, "Expected value: "+val+" for key: "+key+" in returned "+decoderType+" Got value: "+foundVal)
 			continue
 		}
 	}
