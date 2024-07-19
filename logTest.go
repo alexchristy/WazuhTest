@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 	"strconv"
+
+	"github.com/google/uuid"
 )
 
 type TestGroup struct {
@@ -13,6 +15,7 @@ type TestGroup struct {
 }
 
 type LogTest struct {
+	UUID            string            `json:"UUID"`
 	Version         string            `json:"Version"`
 	RuleID          string            `json:"RuleID"`
 	RuleLevel       string            `json:"RuleLevel"`
@@ -30,6 +33,9 @@ func NewLogTest(Version string, RuleID string, RuleLevel string, RuleDescription
 	validTest := true // Want to print out all invalid parts of the test
 	errors := []string{}
 	warnings := []string{}
+
+	// Generate UUID
+	lt.UUID = uuid.New().String()
 
 	// Version
 	valid, err, warn := isValidVersion(Version)
