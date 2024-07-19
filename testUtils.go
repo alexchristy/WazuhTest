@@ -223,7 +223,7 @@ func runTest(ws *WazuhServer, logTest LogTest) (bool, []string, []string) {
 	// Create headers for request
 	logTestHeaders := map[string]interface{}{
 		"Content-Type":  "application/json",
-		"Authorization": "Bearer " + ws.getToken(),
+		"Authorization": "Bearer " + ws.getAuthJwt(),
 	}
 
 	// Create data to send with request
@@ -236,7 +236,7 @@ func runTest(ws *WazuhServer, logTest LogTest) (bool, []string, []string) {
 	// Keep the session alive to prevent
 	// unneccesary reloading of decoders and rulesets
 	if ws.hasSession() {
-		logTestData["token"] = ws.getSessionToken()
+		logTestData["token"] = ws.getLogTestSessionToken()
 	}
 
 	jsonData, err := json.Marshal(logTestData)

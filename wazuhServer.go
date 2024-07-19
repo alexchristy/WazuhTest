@@ -138,7 +138,7 @@ func (ws *WazuhServer) getBaseUrl() string {
 	return fmt.Sprintf("%s://%s:%d/", ws.protocol, ws.Hostname, ws.port)
 }
 
-func (ws *WazuhServer) getToken() string {
+func (ws *WazuhServer) getAuthJwt() string {
 	return ws.token
 }
 
@@ -146,7 +146,7 @@ func (ws *WazuhServer) hasSession() bool {
 	return len(ws.sessionToken) > 0
 }
 
-func (ws *WazuhServer) getSessionToken() string {
+func (ws *WazuhServer) getLogTestSessionToken() string {
 	return ws.sessionToken
 }
 
