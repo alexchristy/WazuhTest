@@ -136,26 +136,16 @@ func runTestGroup(ws *WazuhServer, rootTestDir string, numThreads int, verbosity
 		bar = progressbar.NewOptions(len(logTests), progressbar.OptionSetDescription("Running: "+rootTestDir), progressbar.OptionShowCount())
 	}
 
-	// Initialize the semaphore to allow one test at a time initially
-	semaphore := make(chan struct{}, 1)
 	var wg sync.WaitGroup
 	var testOutputLock sync.Mutex
 
-	// Run the first test synchronously to capture the LogTest session token
-	if len(logTests) > 0 {
-		runSingleTestRoutine(ws, logTests[0], bar, &numTests, &numFailedTests, &numWarnedTests, errors, warnings, &testOutputLock)
-	}
-
 	// Reset the semaphore to allow the desired number of concurrent goroutines
-	semaphore = make(chan struct{}, numThreads)
+	threads := make(chan struct{}, numThreads)
 
 	// Proceed with the remaining tests
-	for i, logTest := range logTests {
-		if i == 0 {
-			continue // Skip the first test as it has already been run
-		}
+	for _, logTest := range logTests {
 		wg.Add(1)
-		semaphore <- struct{}{} // acquire a slot
+		threads <- struct{}{} // acquire a slot
 
 		go func(logTest LogTest) {
 			defer wg.Done()
@@ -171,8 +161,8 @@ func runTestGroup(ws *WazuhServer, rootTestDir string, numThreads int, verbosity
 
 	for _, test := range logTests {
 		failedTest := false
-		testErrors := errors[test.RuleID]
-		testWarnings := warnings[test.RuleID]
+		testErrors := errors[test.UUID]
+		testWarnings := warnings[test.UUID]
 
 		if len(testErrors) > 0 {
 			failedTest = true
@@ -202,9 +192,6 @@ func runTestGroup(ws *WazuhServer, rootTestDir string, numThreads int, verbosity
 func runSingleTestRoutine(ws *WazuhServer, logTest LogTest, bar *progressbar.ProgressBar, numTests *int, numFailedTests *int, numWarnedTests *int, errors map[string][]string, warnings map[string][]string, testOutputLock *sync.Mutex, cliMode bool) {
 	passed, testErrors, testWarnings := runTest(ws, logTest)
 
-	testOutputLock.Lock()
-	defer testOutputLock.Unlock()
-
 	*numTests++
 	if !passed {
 		*numFailedTests++
@@ -213,8 +200,10 @@ func runSingleTestRoutine(ws *WazuhServer, logTest LogTest, bar *progressbar.Pro
 		*numWarnedTests++
 	}
 
-	errors[logTest.RuleID] = testErrors
-	warnings[logTest.RuleID] = testWarnings
+	testOutputLock.Lock()
+	errors[logTest.UUID] = testErrors
+	warnings[logTest.UUID] = testWarnings
+	testOutputLock.Unlock()
 
 	if !cliMode {
 		_ = bar.Add(1)
@@ -238,7 +227,7 @@ func runTest(ws *WazuhServer, logTest LogTest) (bool, []string, []string) {
 	// Create headers for request
 	logTestHeaders := map[string]interface{}{
 		"Content-Type":  "application/json",
-		"Authorization": "Bearer " + ws.getToken(),
+		"Authorization": "Bearer " + ws.getAuthJwt(),
 	}
 
 	// Create data to send with request
@@ -251,7 +240,7 @@ func runTest(ws *WazuhServer, logTest LogTest) (bool, []string, []string) {
 	// Keep the session alive to prevent
 	// unneccesary reloading of decoders and rulesets
 	if ws.hasSession() {
-		logTestData["token"] = ws.getSessionToken()
+		logTestData["token"] = ws.getLogTestSessionToken()
 	}
 
 	jsonData, err := json.Marshal(logTestData)
@@ -355,7 +344,7 @@ func validateLogTestResponse(logTest LogTest, response Response) (bool, []string
 	}
 
 	// ======( Predecoder Validation )====== //
-	passed, predecoderErrors, predecoderWarnings := validateDecoder(logTest.getPredecoder(), response.Data.Output.Predecoder, "Predecoder")
+	passed, predecoderErrors, predecoderWarnings := validateDecoder(logTest.getPredecoder(), response.Data.Output.Predecoder, response.Data.Output.Data, "Pre-decoder")
 	if !passed {
 		errors = append(errors, predecoderErrors...)
 		warnings = append(warnings, predecoderWarnings...)
@@ -363,7 +352,7 @@ func validateLogTestResponse(logTest LogTest, response Response) (bool, []string
 	}
 
 	// ======( Decoder Validation )====== //
-	passed, decoderErrors, decoderWarnings := validateDecoder(logTest.getDecoder(), response.Data.Output.Decoder, "Decoder")
+	passed, decoderErrors, decoderWarnings := validateDecoder(logTest.getDecoder(), response.Data.Output.Decoder, response.Data.Output.Data, "Decoder")
 	if !passed {
 		errors = append(errors, decoderErrors...)
 		warnings = append(warnings, decoderWarnings...)
@@ -492,7 +481,7 @@ func validateRuleDescription(expected string, got string) (bool, []string, []str
 	return true, errors, warnings
 }
 
-func validateDecoder(expected map[string]string, got map[string]string, decoderType string) (bool, []string, []string) {
+func validateDecoder(expected map[string]string, gotDecoder map[string]string, gotData map[string]string, decoderType string) (bool, []string, []string) {
 	var errors []string
 	var warnings []string
 	var passed bool = true
@@ -506,17 +495,28 @@ func validateDecoder(expected map[string]string, got map[string]string, decoderT
 
 	for key, val := range expected {
 		// Check if the key exists in the returned Decoder
-		_, ok := got[key]
-		if !ok {
+		// or the data dictionary
+		_, decoderOk := gotDecoder[key]
+		_, dataOk := gotData[key]
+		if !decoderOk && !dataOk {
 			passed = false
 			errors = append(errors, "Expected key: "+key+" not found in returned "+decoderType)
 			continue
 		}
 
+		var foundVal string
+		if decoderOk {
+			foundVal = gotDecoder[key]
+		} else if dataOk {
+			foundVal = gotData[key]
+		} else {
+			panic("Did not skip key in a decoder that does not exist in response.")
+		}
+
 		// Check if the value of the key matches the expected value
-		if val != got[key] {
+		if foundVal != val {
 			passed = false
-			errors = append(errors, "Expected value: "+val+" for key: "+key+" in returned "+decoderType+" Got value: "+got[key])
+			errors = append(errors, "Expected value: "+val+" for key: "+key+" in returned "+decoderType+" Got value: "+foundVal)
 			continue
 		}
 	}
