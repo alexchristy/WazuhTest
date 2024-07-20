@@ -37,7 +37,7 @@ import (
 // Groups can be nested to any depth. The test runner will recursively search
 // for test definition files and log files in the root directory and all
 // subdirectories.
-func runTestGroup(ws *WazuhServer, rootTestDir string, numThreads int, verbosity int) (int, int, int, error) {
+func runTestGroup(ws *WazuhServer, rootTestDir string, numThreads int, verbosity int, cliMode bool) (int, int, int, error) {
 
 	// Check if rootTestDir exists
 	exists, err := fileExists(rootTestDir)
@@ -82,7 +82,7 @@ func runTestGroup(ws *WazuhServer, rootTestDir string, numThreads int, verbosity
 	// test tree from bottom up
 	for _, subdirectory := range subdirectories {
 		path := filepath.Join(rootTestDir, subdirectory.Name())
-		currNumTests, currFailedTests, currWarnTests, err := runTestGroup(ws, path, numThreads, verbosity)
+		currNumTests, currFailedTests, currWarnTests, err := runTestGroup(ws, path, numThreads, verbosity, cliMode)
 
 		numTests += currNumTests
 		numFailedTests += currFailedTests
@@ -94,8 +94,6 @@ func runTestGroup(ws *WazuhServer, rootTestDir string, numThreads int, verbosity
 	}
 
 	// We are no longer recursing now
-	PrintBoldWhite("Running tests in: " + rootTestDir)
-
 	// Load all test definitions
 	var logTests []LogTest = []LogTest{}
 	var invalidTests int = 0
@@ -114,6 +112,7 @@ func runTestGroup(ws *WazuhServer, rootTestDir string, numThreads int, verbosity
 	}
 
 	if len(logTests) > 0 && verbosity > 0 {
+		PrintBoldWhite("Running tests in: " + rootTestDir)
 		totalTests := len(logTests) + invalidTests
 		PrintWhite("Sucessfully loaded " + strconv.Itoa(len(logTests)) + "/" + strconv.Itoa(totalTests) + " tests")
 	}
@@ -132,7 +131,10 @@ func runTestGroup(ws *WazuhServer, rootTestDir string, numThreads int, verbosity
 	}
 
 	// Create progress bar for visual feedback
-	bar := progressbar.NewOptions(len(logTests), progressbar.OptionSetDescription("Running: "+rootTestDir), progressbar.OptionShowCount())
+	var bar *progressbar.ProgressBar
+	if !cliMode {
+		bar = progressbar.NewOptions(len(logTests), progressbar.OptionSetDescription("Running: "+rootTestDir), progressbar.OptionShowCount())
+	}
 
 	// Initialize the semaphore to allow one test at a time initially
 	semaphore := make(chan struct{}, 1)
@@ -157,8 +159,8 @@ func runTestGroup(ws *WazuhServer, rootTestDir string, numThreads int, verbosity
 
 		go func(logTest LogTest) {
 			defer wg.Done()
-			defer func() { <-semaphore }() // release the slot
-			runSingleTestRoutine(ws, logTest, bar, &numTests, &numFailedTests, &numWarnedTests, errors, warnings, &testOutputLock)
+			defer func() { <-threads }() // release the slot
+			runSingleTestRoutine(ws, logTest, bar, &numTests, &numFailedTests, &numWarnedTests, errors, warnings, &testOutputLock, cliMode)
 		}(logTest)
 	}
 
@@ -197,7 +199,7 @@ func runTestGroup(ws *WazuhServer, rootTestDir string, numThreads int, verbosity
 	return numTests, numFailedTests, numWarnedTests, err
 }
 
-func runSingleTestRoutine(ws *WazuhServer, logTest LogTest, bar *progressbar.ProgressBar, numTests *int, numFailedTests *int, numWarnedTests *int, errors map[string][]string, warnings map[string][]string, testOutputLock *sync.Mutex) {
+func runSingleTestRoutine(ws *WazuhServer, logTest LogTest, bar *progressbar.ProgressBar, numTests *int, numFailedTests *int, numWarnedTests *int, errors map[string][]string, warnings map[string][]string, testOutputLock *sync.Mutex, cliMode bool) {
 	passed, testErrors, testWarnings := runTest(ws, logTest)
 
 	testOutputLock.Lock()
@@ -214,7 +216,9 @@ func runSingleTestRoutine(ws *WazuhServer, logTest LogTest, bar *progressbar.Pro
 	errors[logTest.RuleID] = testErrors
 	warnings[logTest.RuleID] = testWarnings
 
-	_ = bar.Add(1)
+	if !cliMode {
+		_ = bar.Add(1)
+	}
 }
 
 // This function will run a single test and return back the pass/fail

@@ -14,7 +14,7 @@ func main() {
 
 	wazuhServer.checkConnection(args.Verbosity)
 
-	numTests, numFailedTests, numWarnTests, err := runTestGroup(wazuhServer, args.TestsDir, args.Threads, args.Verbosity)
+	numTests, numFailedTests, numWarnTests, err := runTestGroup(wazuhServer, args.TestsDir, args.Threads, args.Verbosity, args.CliMode)
 	if err != nil {
 		panic(err)
 	}
