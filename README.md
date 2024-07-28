@@ -1,7 +1,7 @@
 
 <h1 align="center">
   <br>
-  <a href="http://ufsit.clubhttps://ufsit.club/teams/blue.html"><img src="https://raw.githubusercontent.com/alexchristy/WazuhTest/main/assets/img/wazuhTest.png" alt="WazuhTest" width="200"></a>
+  <a href="https://ufsit.club/teams/blue.html"><img src="https://raw.githubusercontent.com/alexchristy/WazuhTest/main/assets/img/wazuhTest.png" alt="WazuhTest" width="200"></a>
   <br>
   WazuhTest
   <br>
