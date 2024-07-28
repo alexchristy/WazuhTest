@@ -12,7 +12,9 @@
 <p align="center">
   <a href="#key-features">Key Features</a> •
   <a href="#how-to-use">How To Use</a> •
-  <a href="#writing-tests">Writing Tests</a> •
+  <a href="#what-are-the-tests">What are the tests?</a> •
+  <a href="#organizing-tests">Organizing Tests</a> •
+  <a href="#test-syntax">Test Syntax</a> •
   <a href="#related">Related</a> •
   <a href="#license">License</a>
 </p>
@@ -59,13 +61,13 @@ go build .
 
 > This step **REQUIRES** that you have a running Wazuh manager. The quickest way to do this is to use the official Wazuh manager [docker image](https://hub.docker.com/r/wazuh/wazuh-manager) and port forward port 55000.
 
-## Writing Tests
+## What are the tests?
 
 Tests are organized by directories, each containing any number of JSON files defining the tests. Raw logs used for testing can be stored anywhere locally but are typically kept in the same directory as the test definition files.
 
 For an example, see the `wazuh-tests/` directory in the repository. These tests work out of the box with any default Wazuh manager installation.
 
-### Test Grouping
+## Organizing Tests
 
 Tests are grouped by directories. The provided tests in `wazuh-tests/` are grouped into two categories: `ubuntu` and `centos`. The `.txt` files are the raw logs sent to the Wazuh manager API, while the `.json` files define the tests.
 
@@ -93,7 +95,7 @@ wazuh-tests/
 (...)
 ```
 
-### Test Syntax
+## Test Syntax
 
 Each JSON test file is a list of test objects under `tests`.
 
@@ -110,24 +112,96 @@ Each JSON test file is a list of test objects under `tests`.
 * `Predecoder` - A map of key-value pairs for the predecoder.
 * `TestDescription` - A string describing the test.
 
-Example included test from `wazuh-tests/ubuntu/test_agent.json`:
+Example included tests from `wazuh-tests/ubuntu/test_ssh.json`:
 
 ```json
 {
     "tests": [
         {
-            "TestDescription": "Wazuh agent event queue is full",
-            "RuleID": "203",
-            "RuleLevel": "9",
+            "TestDescription": "SSH login to a non-existent user",
+            "RuleID": "5710",
+            "RuleLevel": "5",
             "Format": "syslog",
-            "RuleDescription": "Agent event queue is full. Events may be lost.",
-            "LogFilePath": "203.txt",
+            "RuleDescription": "sshd: Attempt to login using a non-existent user",
+            "LogFilePath": "5710.txt",
             "Predecoder": {},
             "Decoder": {}
+        },
+        {
+            "TestDescription": "SSH login to a non-existent user from a local network",
+            "RuleID": "5710",
+            "RuleLevel": "5",
+            "Format": "syslog",
+            "RuleDescription": "sshd: Attempt to login using a non-existent user",
+            "LogFilePath": "5710-local-net.txt",
+            "Predecoder": {},
+            "Decoder": {
+                "srcip": "10.0.0.4",
+                "srcport": "59528",
+                "srcuser": "non-existent"
+            }
         }
     ]
 }
 ```
+
+### Decoder Fields
+
+The `Predecoder` and `Decoder` fields in a test accept arbitrary key-value pairs that are checked against the Wazuh output.
+
+**Example:**
+
+Below is an example test using both `Predecoder` and `Decoder` fields where the appropriate values for `Predecoder` and `Decoder` are determined based on the Wazuh Ruleset Test output. The key-value pairs in the test must match the Wazuh Ruleset Test output key-value pairs exactly, and the order does not matter.
+
+**Finding Wazuh Ruleset Test**:
+
+![Visual steps to access Wazuh Ruleset Test tool in dashboard](https://github.com/user-attachments/assets/0960d86a-86b0-4819-a749-6acb510fc13c)
+
+**Raw Log:**
+
+```txt
+Mar  5 13:49:34 ip-10-0-0-10 sshd[1602]: Invalid user non-existent from 10.0.0.4 port 59528
+```
+
+**Run Test:**
+
+![image](https://github.com/user-attachments/assets/e7bba0ae-8de5-4723-a096-b4a6c0b42b54)
+
+**Predecoder Output:**
+
+![Predecoder values from Wazuh Ruleset Test with red arrows pointing out program_name and hostname values](https://github.com/user-attachments/assets/3f34adf0-4374-42ae-8aa0-4ba747fb836e)
+
+**Decoder Output:**
+
+![Decoder values from Wazuh Ruleset Test with red arrows pointing out the src* values](https://github.com/user-attachments/assets/cca6aef5-150a-44fd-8363-dc79b2d38e10)
+
+**Test:**
+
+```json
+{
+    "tests": [
+        {
+            "TestDescription": "SSH login to a non-existent user from a local network",
+            "RuleID": "5710",
+            "RuleLevel": "5",
+            "Format": "syslog",
+            "RuleDescription": "sshd: Attempt to login using a non-existent user",
+            "LogFilePath": "5710-local-net.txt",
+            "Predecoder": {
+              "program_name": "sshd",
+              "hostname": "ip-10-0-0-10"
+            },
+            "Decoder": {
+                "srcip": "10.0.0.4",
+                "srcport": "59528",
+                "srcuser": "non-existent"
+            }
+        }
+    ]
+}
+```
+
+> **Note:** When using the Wazuh log test API, if a value is not found in decoder or predecoder, the tool automatically checks for it in the data field before reporting it as missing.
 
 ## Related
 
