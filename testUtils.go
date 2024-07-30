@@ -127,7 +127,7 @@ func runTestGroup(ws *WazuhServer, rootTestDir string, numThreads int, verbosity
 	// when interpreting the results.
 	if len(otherFiles) < len(logTests) {
 		diff := len(logTests) - len(otherFiles)
-		PrintYellow("WARNING: " + rootTestDir + " has " + strconv.Itoa(diff) + " tests with no corresponding log files and will be skipped...")
+		PrintYellow("WARNING: " + rootTestDir + " has " + strconv.Itoa(diff) + " more tests than log files...")
 	}
 
 	// Create progress bar for visual feedback
